@@ -226,9 +226,16 @@ def trigger_emergency_sos(
                         rec["request_id"] = res_json.get("request_id")
                     logger.info(f"Fast2SMS batch dispatched successfully to {clean_phones}: {res_json}")
                 else:
+                    err_msg = res_json.get("message") or f"Fast2SMS status {resp.status_code}"
                     logger.warning(f"Fast2SMS response: {resp.status_code} {resp.text}")
+                    for rec in sms_dispatches:
+                        rec["status"] = "FAST2SMS_RECHARGE_REQUIRED" if "100 INR" in str(err_msg) else "FAST2SMS_FAILED"
+                        rec["error"] = err_msg
             except Exception as fex:
                 logger.warning(f"Fast2SMS request failed: {fex}")
+                for rec in sms_dispatches:
+                    rec["status"] = "FAST2SMS_ERROR"
+                    rec["error"] = str(fex)
 
     # 4. Create high-priority Alert for assigned counsellor
     from app.models.models import RiskPrediction, DistressScore
