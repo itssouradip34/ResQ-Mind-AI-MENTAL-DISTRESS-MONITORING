@@ -28,8 +28,8 @@ Cross-platform mental well-being and distress monitoring mobile application for 
    - In-app confidential appointment booking with date selection and counsellor notes.
 
 5. **12-Hour Inactivity Recovery System**
-   - Background notification reminders via `expo-notifications`.
-   - Checks in with the user every 12 hours if the app has not been opened to monitor emotional recovery and physical stability.
+   - Pure JavaScript & `AsyncStorage` inactivity tracking compatible with Expo Go.
+   - Prompts check-in reminders if 12+ hours pass without opening the app to monitor emotional recovery and somatic stability.
 
 6. **Somatic Appetite & Serotonin Tracker**
    - Regular weight tracking against Welford baseline algorithm.

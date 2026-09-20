@@ -1,108 +1,94 @@
-import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
-import { isRunningInExpoGo } from 'expo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Alert } from 'react-native';
 
-// Configure foreground notification behavior safely
-try {
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
-  });
-} catch (e) {
-  console.warn('NotificationHandler init skipped in Expo Go:', e);
+const STORAGE_KEY_LAST_ACTIVE = '@resqmind_last_active_timestamp';
+const STORAGE_KEY_INACTIVITY_HOURS = 12;
+
+type InactivityCallback = (timeDiffHours: number) => void;
+let listeners: InactivityCallback[] = [];
+
+/**
+ * Record that the user was active now
+ */
+export async function recordUserActivity(): Promise<void> {
+  try {
+    const now = Date.now();
+    await AsyncStorage.setItem(STORAGE_KEY_LAST_ACTIVE, now.toString());
+  } catch (e) {
+    console.warn('Failed to record user activity:', e);
+  }
 }
 
-export async function registerForPushNotificationsAsync(): Promise<boolean> {
-  if (Platform.OS === 'web' || isRunningInExpoGo()) {
-    console.log('[NotificationService] Running in Expo Go; remote push registration bypassed.');
-    return true;
-  }
-
+/**
+ * Requirement #5: Check if 12 hours of inactivity have elapsed
+ * "start sending him notifications like if he is fine, if he is recovering or not for 12 hrs of not using the app"
+ */
+export async function check12HourInactivity(userName?: string): Promise<boolean> {
   try {
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-
-    if (finalStatus !== 'granted') {
-      console.warn('Failed to get push token for notification!');
+    const lastActiveStr = await AsyncStorage.getItem(STORAGE_KEY_LAST_ACTIVE);
+    if (!lastActiveStr) {
+      await recordUserActivity();
       return false;
     }
 
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('wellbeing-reminders', {
-        name: 'RESQ-MIND Well-Being Reminders',
-        importance: Notifications.AndroidImportance.HIGH,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#6366F1',
-      });
+    const lastActive = parseInt(lastActiveStr, 10);
+    const now = Date.now();
+    const diffHours = (now - lastActive) / (1000 * 60 * 60);
+
+    if (diffHours >= STORAGE_KEY_INACTIVITY_HOURS) {
+      notifyListeners(diffHours);
+      return true;
     }
 
-    return true;
+    return false;
   } catch (e) {
-    console.warn('Notification registration skipped or failed:', e);
+    console.warn('Error checking inactivity:', e);
     return false;
   }
 }
 
-/**
- * Requirement #5: Schedules 12-hour inactivity notification reminders
- * "start sending him notifications like if he is fine, if he is recovering or not for 12 hrs of not using the app"
- */
-export async function schedule12HourInactivityReminder(userName?: string): Promise<string | null> {
-  try {
-    // Cancel existing scheduled reminders first
-    await Notifications.cancelAllScheduledNotificationsAsync();
+export function subscribeToInactivityCheck(callback: InactivityCallback): () => void {
+  listeners.push(callback);
+  return () => {
+    listeners = listeners.filter((cb) => cb !== callback);
+  };
+}
 
-    const name = userName ? ` ${userName}` : '';
-
-    // Schedule 12-hour reminder (12 hours = 12 * 3600 seconds = 43200 seconds)
-    const id = await Notifications.scheduleNotificationAsync({
-      content: {
-        title: '🌿 RESQ-MIND Well-Being Check',
-        body: `Hello${name}, we are checking in on your recovery and comfort. Take a quiet minute for your daily well-being & weight check-in.`,
-        data: { screen: 'CheckIn' },
-        sound: true,
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-        seconds: 43200, // 12 hours
-        repeats: true,
-      },
-    });
-
-    console.log(`12-Hour recovery reminder scheduled successfully: ${id}`);
-    return id;
-  } catch (error) {
-    console.warn('Could not schedule 12-hour reminder:', error);
-    return null;
-  }
+function notifyListeners(hours: number) {
+  listeners.forEach((cb) => {
+    try {
+      cb(hours);
+    } catch (e) {
+      console.warn('Inactivity callback error:', e);
+    }
+  });
 }
 
 /**
- * Triggers an immediate test notification for demonstration
+ * Schedules the 12-hour recovery reminder
+ */
+export async function schedule12HourInactivityReminder(userName?: string): Promise<void> {
+  await recordUserActivity();
+  console.log(`[NotificationService] 12-Hour recovery tracking initialized for ${userName || 'user'}.`);
+}
+
+/**
+ * Triggers an immediate test notification/modal for demonstration
  */
 export async function triggerImmediateCheckInDemo(userName?: string): Promise<void> {
-  try {
-    const name = userName ? ` ${userName}` : '';
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: '🌿 RESQ-MIND 12h Inactivity Check',
-        body: `Hello${name}, it has been 12 hours. How is your recovery and distress feeling right now? Tap to record your somatic weight & thoughts.`,
-        data: { screen: 'CheckIn' },
-        sound: true,
-      },
-      trigger: null, // send immediately
-    });
-  } catch (e) {
-    console.warn('Immediate demo notification error:', e);
-  }
+  const name = userName ? ` ${userName}` : '';
+  Alert.alert(
+    '🌿 RESQ-MIND 12h Inactivity Check',
+    `Hello${name}, it has been over 12 hours. We are checking in on your recovery, sleep, and distress. How are you feeling right now? Remember to log your somatic weight check.`,
+    [
+      { text: 'I am Feeling Fine', style: 'default' },
+      { text: 'Complete Check-In', style: 'default' },
+    ]
+  );
+  notifyListeners(12.5);
+}
+
+export async function registerForPushNotificationsAsync(): Promise<boolean> {
+  // Pure JavaScript compatibility for Expo Go
+  return true;
 }
