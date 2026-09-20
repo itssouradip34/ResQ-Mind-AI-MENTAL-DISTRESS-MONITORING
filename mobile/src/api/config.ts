@@ -1,13 +1,27 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import { Platform, NativeModules } from 'react-native';
 
 // Default backend API URL
-// In Android emulator: 10.0.2.2 points to host machine
-// In Expo Go on physical device: Use PC's local IP, e.g., http://192.168.1.X:8000
+// Auto-detects local host IP from Metro bundler script URL when running in Expo Go
+export function getAutoDetectedHost(): string {
+  try {
+    const scriptURL = (NativeModules as any)?.SourceCode?.scriptURL;
+    if (scriptURL && typeof scriptURL === 'string') {
+      const match = scriptURL.match(/:\/\/([^:\/]+)/);
+      if (match && match[1] && match[1] !== 'localhost' && match[1] !== '127.0.0.1') {
+        return `http://${match[1]}:8000`;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return 'http://172.24.29.95:8000';
+}
+
 export const DEFAULT_API_URL = Platform.select({
-  android: 'http://10.0.2.2:8000',
-  ios: 'http://localhost:8000',
-  default: 'http://localhost:8000',
+  android: getAutoDetectedHost(),
+  ios: getAutoDetectedHost(),
+  default: 'http://172.24.29.95:8000',
 });
 
 const STORAGE_KEY_API_URL = '@resqmind_custom_api_url';
@@ -22,7 +36,7 @@ export async function getBaseApiUrl(): Promise<string> {
   } catch (e) {
     console.error('Failed to get custom API URL:', e);
   }
-  return DEFAULT_API_URL;
+  return getAutoDetectedHost();
 }
 
 export async function setBaseApiUrl(url: string): Promise<void> {
