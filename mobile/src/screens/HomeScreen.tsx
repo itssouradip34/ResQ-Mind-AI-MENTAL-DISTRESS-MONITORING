@@ -17,11 +17,14 @@ import {
   Scale,
   Activity,
   Heart,
+  ShieldCheck,
+  CheckCircle2,
 } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { EmergencyNoticeBanner } from '../components/EmergencyNoticeBanner';
 import { apiRequest } from '../api/config';
 import { triggerImmediateCheckInDemo } from '../services/NotificationService';
+import { checkEmergencyPermissions, requestEmergencyTelephonyPermissions } from '../services/PermissionService';
 
 interface HomeScreenProps {
   onOpenSOS: () => void;
@@ -33,6 +36,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenSOS, onNavigate })
   const [caseDetails, setCaseDetails] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [notificationSentMessage, setNotificationSentMessage] = useState<string | null>(null);
+  const [telephonyPermitted, setTelephonyPermitted] = useState<boolean | null>(null);
 
   const fetchStatus = async () => {
     try {
@@ -47,11 +51,27 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenSOS, onNavigate })
 
   useEffect(() => {
     fetchStatus();
+    async function verifyPermissions() {
+      const p = await checkEmergencyPermissions();
+      setTelephonyPermitted(p.allAuthorized);
+    }
+    verifyPermissions();
   }, [caseId]);
+
+  const handleAuthorizeEmergency = async () => {
+    const res = await requestEmergencyTelephonyPermissions();
+    setTelephonyPermitted(res.allAuthorized);
+    if (res.allAuthorized) {
+      setNotificationSentMessage('✓ Emergency calling & SMS permissions successfully authorized!');
+      setTimeout(() => setNotificationSentMessage(null), 4000);
+    }
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchStatus();
+    const p = await checkEmergencyPermissions();
+    setTelephonyPermitted(p.allAuthorized);
     setRefreshing(false);
   };
 
@@ -113,6 +133,30 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenSOS, onNavigate })
             </View>
           </View>
         </TouchableOpacity>
+
+        {/* EMERGENCY TELEPHONY & SMS PERMISSION CARD */}
+        <View style={telephonyPermitted ? styles.permCardAuthorized : styles.permCardPending}>
+          <View style={styles.permHeader}>
+            {telephonyPermitted ? (
+              <ShieldCheck size={18} color="#059669" />
+            ) : (
+              <ShieldAlert size={18} color="#D97706" />
+            )}
+            <Text style={telephonyPermitted ? styles.permTitleAuthorized : styles.permTitlePending}>
+              {telephonyPermitted ? 'AUTOMATED PROTOCOLS AUTHORIZED' : 'EMERGENCY PERMISSION REQUIRED'}
+            </Text>
+          </View>
+          <Text style={styles.permDesc}>
+            {telephonyPermitted
+              ? '✓ Automated calling to Contact 1 & emergency SMS to 3 contacts are authorized to execute without waiting for manual interaction.'
+              : 'Grant calling & SMS permissions so RESQ-MIND can call Contact 1 and alert 3 contacts automatically during crisis without making you wait or tap.'}
+          </Text>
+          {!telephonyPermitted && (
+            <TouchableOpacity style={styles.grantPermBtn} onPress={handleAuthorizeEmergency} activeOpacity={0.85}>
+              <Text style={styles.grantPermBtnText}>Authorize Automated Calling & SMS Now</Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
         {notificationSentMessage && (
           <View style={styles.notifBanner}>
@@ -308,6 +352,57 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  permCardAuthorized: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+  },
+  permCardPending: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+  },
+  permHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  permTitleAuthorized: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#065F46',
+    letterSpacing: 0.4,
+  },
+  permTitlePending: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#92400E',
+    letterSpacing: 0.4,
+  },
+  permDesc: {
+    fontSize: 11.5,
+    color: '#475569',
+    lineHeight: 16,
+  },
+  grantPermBtn: {
+    backgroundColor: '#D97706',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  grantPermBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
   card: {
     backgroundColor: '#FFFFFF',
