@@ -81,55 +81,17 @@ export const SOSModal: React.FC<SOSModalProps> = ({
       relationship: 'Family',
     };
 
-    // 1. Request / Verify Android Runtime Permissions up-front (CALL_PHONE, SEND_SMS, GPS)
-    await requestEmergencyTelephonyPermissions();
-
-    // 2. AUTOMATED DIRECT CALL TO CONTACT 1 (Without waiting for user to dial)
-    const rawPhone = primaryContact.phone.trim();
-    if (rawPhone) {
-      if (Platform.OS === 'android') {
-        try {
-          // Attempt direct native phone call intent (ACTION_CALL)
-          await IntentLauncher.startActivityAsync('android.intent.action.CALL', {
-            data: `tel:${rawPhone}`,
-          });
-          setCallInitiated(true);
-        } catch (intentErr) {
-          // Fallback to standard tel URL if ACTION_CALL is sandboxed by Expo Go
-          await Linking.openURL(`tel:${rawPhone}`).catch(() => {});
-          setCallInitiated(true);
-        }
-      } else {
-        await Linking.openURL(`tel:${rawPhone}`).catch(() => {});
-        setCallInitiated(true);
-      }
+    // 1. Fetch precise GPS location
+    let loc: UserLocation | null = null;
+    try {
+      loc = await getCurrentLocation();
+      setLocation(loc);
+    } catch (locErr) {
+      console.warn('GPS location fetch error:', locErr);
     }
 
     try {
-      // 3. Fetch precise GPS location
-      const loc = await getCurrentLocation();
-      setLocation(loc);
-
-      // 4. AUTOMATED SMS DISPATCH TO 3 CONTACTS (Triggered immediately)
-      const phones = emergencyContacts.slice(0, 3).map((c) => c.phone.trim()).filter(Boolean);
-      const locText = loc
-        ? `Lat ${loc.latitude.toFixed(4)}, Lng ${loc.longitude.toFixed(4)}`
-        : 'Registered Location';
-      const msg = `URGENT [RESQ-MIND Alert]: ${user?.name || 'User'} has triggered an emergency distress alert. Please call or reach out to them immediately. Location: ${locText}.`;
-
-      try {
-        const isSmsAvailable = await SMS.isAvailableAsync();
-        if (isSmsAvailable && phones.length > 0) {
-          SMS.sendSMSAsync(phones, msg).catch((e) => {
-            console.warn('Auto SMS dispatch error:', e);
-          });
-          setSmsInitiated(true);
-        }
-      } catch (smsErr) {
-        console.warn('Auto SMS launcher error:', smsErr);
-      }
-
-      // 5. BACKEND CARRIER DISPATCH (Twilio Voice Call + Fast2SMS)
+      // 2. BACKEND CARRIER DISPATCH (Twilio Voice Call + Fast2SMS)
       const twilioSid = await AsyncStorage.getItem('@resqmind_twilio_sid');
       const twilioToken = await AsyncStorage.getItem('@resqmind_twilio_token');
       const twilioPhone = await AsyncStorage.getItem('@resqmind_twilio_phone');
@@ -140,8 +102,8 @@ export const SOSModal: React.FC<SOSModalProps> = ({
         case_id: caseId || 'CASE-MH-2026-001',
         user_name: user?.name || 'Protected Individual',
         user_phone: user?.email || 'Registered Device',
-        latitude: loc.latitude,
-        longitude: loc.longitude,
+        latitude: loc?.latitude,
+        longitude: loc?.longitude,
         trigger_source: triggerSource,
         emergency_contacts: emergencyContacts,
         twilio_account_sid: twilioSid || undefined,
@@ -156,6 +118,13 @@ export const SOSModal: React.FC<SOSModalProps> = ({
       });
 
       setSosResult(result);
+
+      if (result?.automated_call?.carrier_dispatched) {
+        setCallInitiated(true);
+      }
+      if (result?.sms_dispatched?.some((s) => s.carrier_dispatched)) {
+        setSmsInitiated(true);
+      }
     } catch (err: any) {
       console.error('Failed to trigger Point 3 SOS in backend:', err);
       setError(err.message || 'Failed to dispatch SOS alerts automatically.');
