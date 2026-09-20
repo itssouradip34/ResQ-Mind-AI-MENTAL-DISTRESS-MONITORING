@@ -204,23 +204,29 @@ def trigger_emergency_sos(
                 import httpx
                 resp = httpx.post(
                     "https://www.fast2sms.com/dev/bulkV2",
-                    headers={"authorization": fast2sms_key},
-                    data={
+                    headers={"authorization": fast2sms_key, "Content-Type": "application/json"},
+                    json={
                         "route": "q",
                         "message": sms_text,
                         "language": "english",
                         "flash": 0,
                         "numbers": ",".join(clean_phones)
                     },
-                    timeout=8.0
+                    timeout=10.0
                 )
-                if resp.status_code == 200:
+                try:
+                    res_json = resp.json()
+                except Exception:
+                    res_json = {}
+
+                if resp.status_code == 200 and res_json.get("return") is True:
                     for rec in sms_dispatches:
                         rec["status"] = "FAST2SMS_DISPATCHED"
                         rec["carrier_dispatched"] = True
-                    logger.info(f"Fast2SMS batch dispatched successfully to {clean_phones}")
+                        rec["request_id"] = res_json.get("request_id")
+                    logger.info(f"Fast2SMS batch dispatched successfully to {clean_phones}: {res_json}")
                 else:
-                    logger.warning(f"Fast2SMS failed with status {resp.status_code}: {resp.text}")
+                    logger.warning(f"Fast2SMS response: {resp.status_code} {resp.text}")
             except Exception as fex:
                 logger.warning(f"Fast2SMS request failed: {fex}")
 
