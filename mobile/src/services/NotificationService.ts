@@ -1,20 +1,26 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { isRunningInExpoGo } from 'expo';
 
-// Configure foreground notification behavior
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// Configure foreground notification behavior safely
+try {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+} catch (e) {
+  console.warn('NotificationHandler init skipped in Expo Go:', e);
+}
 
 export async function registerForPushNotificationsAsync(): Promise<boolean> {
-  if (Platform.OS === 'web') {
-    return false;
+  if (Platform.OS === 'web' || isRunningInExpoGo()) {
+    console.log('[NotificationService] Running in Expo Go; remote push registration bypassed.');
+    return true;
   }
 
   try {
