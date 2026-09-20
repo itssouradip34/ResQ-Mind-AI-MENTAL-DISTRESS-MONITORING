@@ -23,6 +23,8 @@ class TokenResponse(BaseModel):
     name: str
     district_id: Optional[str] = None
     state_id: Optional[str] = None
+    victim_pseudo_id: Optional[str] = None
+    case_id: Optional[str] = None
 
 class UserOut(BaseModel):
     id: str
@@ -95,6 +97,8 @@ class CheckInCreate(BaseModel):
     submitted_via: str = "text"  # text or voice
     response_latency_sec: Optional[float] = 8.0
     audio_base64: Optional[str] = None  # Base64 simulated/synthetic audio if submitted_via == "voice"
+    current_weight_kg: Optional[float] = None
+    physical_activity_rating: Optional[int] = None
 
 class CheckInResponse(BaseResponse):
     checkin_id: str
@@ -114,6 +118,10 @@ class ChatMessageResponse(BaseResponse):
     reply: str
     detected_crisis: bool = False
     emergency_pathway_suggested: bool = False
+    suggested_coping_exercise: Optional[str] = None  # "box_breathing", "grounding_54321", etc.
+    prompt_counsellor_booking: bool = False
+    trigger_point3_sos: bool = False
+    somatic_alert: Optional[str] = None
     checkin_id: Optional[str] = None
 
 # ----------------- Case Events & Coupling -----------------
@@ -313,3 +321,66 @@ class EmergencyResponse(BaseModel):
     police_emergency: str = "112"
     tele_manas_mental_health: str = "14416"
     local_contacts: List[EmergencyContact]
+
+# ----------------- Mobile & SOS Schemas -----------------
+class PersonalEmergencyContact(BaseModel):
+    name: str
+    phone: str
+    relationship: str
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    name: str
+    phone: Optional[str] = ""
+    age: Optional[int] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    activity_level: Optional[str] = "moderate"
+    district_id: Optional[str] = "DIST-PUN-01"
+    state_id: Optional[str] = "MH"
+    preferred_language: Optional[str] = "en"
+    emergency_contacts: Optional[List[PersonalEmergencyContact]] = []
+
+class NearbyCounsellorOut(BaseModel):
+    id: str
+    name: str
+    title: str
+    organization: str
+    phone: str
+    distance_km: float
+    latitude: float
+    longitude: float
+    district: str
+    availability: str
+
+class AppointmentCreateRequest(BaseModel):
+    case_id: str
+    counsellor_id: str
+    preferred_date: Optional[str] = None
+    notes: Optional[str] = None
+
+class AppointmentOut(BaseResponse):
+    appointment_id: str
+    case_id: str
+    counsellor_id: str
+    status: str
+    scheduled_time: str
+    message: str
+
+class SOSTriggerRequest(BaseModel):
+    victim_pseudo_id: str
+    case_id: str
+    user_name: str
+    user_phone: Optional[str] = ""
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    trigger_source: str = "ai_chatbot_crisis"
+    emergency_contacts: Optional[List[PersonalEmergencyContact]] = []
+
+class SOSTriggerResponse(BaseResponse):
+    status: str
+    automated_call: Dict[str, Any]
+    sms_dispatched: List[Dict[str, Any]]
+    helplines: Dict[str, str]
+    message: str

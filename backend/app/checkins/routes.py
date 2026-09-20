@@ -136,6 +136,29 @@ def submit_checkin(payload: CheckInCreate, db: Session = Depends(get_db)):
         ))
         self_report_z = 0.0
 
+    # 7b. Somatic Weight Tracking (appetite / serotonin depletion indicator)
+    somatic_factor = None
+    if payload.current_weight_kg is not None and payload.current_weight_kg > 0:
+        wt_base = db.query(PersonalBaseline).filter(
+            PersonalBaseline.victim_pseudo_id == payload.victim_pseudo_id,
+            PersonalBaseline.feature_name == "weight_kg"
+        ).first()
+        if wt_base:
+            weight_diff = wt_base.running_mean - payload.current_weight_kg
+            drop_pct = (weight_diff / wt_base.running_mean) * 100.0 if wt_base.running_mean > 0 else 0.0
+            if drop_pct >= 3.0:
+                somatic_factor = f"Rapid weight drop of {drop_pct:.1f}% indicates somatic distress / appetite reduction."
+            new_m, new_v, new_count = update_welford(wt_base.running_mean, wt_base.running_variance, wt_base.n_observations, payload.current_weight_kg)
+            wt_base.running_mean, wt_base.running_variance, wt_base.n_observations = new_m, new_v, new_count
+        else:
+            db.add(PersonalBaseline(
+                victim_pseudo_id=payload.victim_pseudo_id,
+                feature_name="weight_kg",
+                running_mean=payload.current_weight_kg,
+                running_variance=2.0,
+                n_observations=1
+            ))
+
     # 8. Look up Case Events & compute time-decayed stress impact (Module 10 & 11)
     from app.ai.case_events import compute_case_events_stress_impact
     all_case_events = db.query(CaseEvent).filter(
@@ -211,6 +234,9 @@ def submit_checkin(payload: CheckInCreate, db: Session = Depends(get_db)):
         distress_markers=text_res.get("distress_markers", [])
     )
 
+    if somatic_factor:
+        explanation_data["contributing_factors"].append(somatic_factor)
+
     explanation = RiskExplanation(
         risk_prediction_id=prediction.id,
         contributing_factors=explanation_data["contributing_factors"],
@@ -262,33 +288,86 @@ def submit_checkin(payload: CheckInCreate, db: Session = Depends(get_db)):
 @router.post("/chat/message", response_model=ChatMessageResponse)
 def conversational_chat(payload: ChatMessageRequest, db: Session = Depends(get_db)):
     """
-    Module 4: Multilingual Conversational Assistant Check-In.
-    Templated dialogue (mode: simulated for conversational framing, real keyword gating).
+    Module 4: Multilingual Conversational Assistant Check-In with GPU sentiment inference,
+    Point 3 automatic SOS trigger on crisis keywords, and somatic / coping recommendations.
     """
     text_analysis = analyze_text(payload.message, preferred_language=payload.language)
     detected_crisis = text_analysis.get("detected_crisis", False)
+    msg_lower = payload.message.lower()
 
-    # Plain language template response
-    if detected_crisis:
+    # Crisis keyword detection
+    crisis_keywords = [
+        "suicide", "kill myself", "end my life", "want to die", "take my life",
+        "hanging", "poison", "cannot live", "no reason to live", "end it all", "end myself"
+    ]
+    is_acute_crisis = detected_crisis or any(k in msg_lower for k in crisis_keywords)
+
+    # Panic & Acute Anxiety keywords
+    panic_keywords = ["panic", "anxious", "can't breathe", "cannot breathe", "hyperventilating", "heart racing", "shaking", "terrified", "overwhelmed"]
+    is_panic = any(k in msg_lower for k in panic_keywords)
+
+    # Trauma & Flashback keywords
+    trauma_keywords = ["flashback", "nightmare", "unsafe", "threat", "attacker", "hearing", "court", "threatened", "afraid"]
+    is_trauma = any(k in msg_lower for k in trauma_keywords)
+
+    # Somatic & Appetite keywords (Serotonin depletion indicator)
+    somatic_keywords = ["not eating", "can't eat", "cannot eat", "no appetite", "lost weight", "losing weight", "haven't eaten", "skip meal", "vomit", "nausea"]
+    is_somatic = any(k in msg_lower for k in somatic_keywords)
+
+    suggested_coping = None
+    prompt_booking = False
+    trigger_sos = False
+    somatic_note = None
+
+    if is_acute_crisis:
+        detected_crisis = True
+        trigger_sos = True
+        prompt_booking = True
         reply = (
-            "We hear that you are going through immense distress. Please know you are not alone. "
-            "Emergency assistance is available right now via National Helpline 14566 or Tele-MANAS 14416."
+            "I hear how intense and overwhelming your pain is right now. Please know you are not alone and your life matters. "
+            "I am initiating an immediate automated emergency alert to your trusted contact and sending SMS alerts to your circle right now. "
+            "Please also connect directly with Tele-MANAS (14416 - 24/7 Free) or Police (112)."
+        )
+    elif is_panic:
+        suggested_coping = "box_breathing"
+        reply = (
+            "I sense you are experiencing acute overwhelm and physical anxiety. Let's slow things down together. "
+            "I recommend starting Box Breathing (4 seconds Inhale, 4s Hold, 4s Exhale, 4s Hold) to help regulate your nervous system right now."
+        )
+    elif is_trauma:
+        suggested_coping = "grounding_54321"
+        prompt_booking = True
+        reply = (
+            "Thank you for reaching out. What you experienced is difficult, and your safety is the highest priority. "
+            "Try our 5-4-3-2-1 Sensory Grounding exercise to anchor yourself safely in the present, and consider booking a session with a nearby verified counsellor."
+        )
+    elif is_somatic:
+        somatic_note = "Somatic appetite depletion detected"
+        reply = (
+            "Chronic distress and heightened cortisol frequently suppress appetite and deplete serotonin in the digestive system. "
+            "Please be gentle with your body — try small sips of water or nourishing soup. "
+            "Remember to log your current weight in the Check-In tab so your counsellor can monitor your physical well-being."
         )
     elif "fear_for_safety" in text_analysis.get("distress_markers", []):
+        prompt_booking = True
         reply = (
-            "Thank you for sharing this with us. Your safety is the highest priority. "
-            "Your assigned counsellor has been alerted to review your case timeline promptly."
+            "Thank you for sharing this with us. Your safety is our highest priority. "
+            "Your assigned counsellor and support team have been notified to review your recent check-ins."
         )
     else:
         reply = (
-            "Thank you for completing this check-in. Your thoughts and feelings have been safely recorded "
-            "in your confidential file."
+            "I'm here listening with you. You can share whatever is on your mind safely and confidentially. "
+            "How has your energy and peace of mind been feeling today?"
         )
 
     return ChatMessageResponse(
         reply=reply,
         detected_crisis=detected_crisis,
         emergency_pathway_suggested=detected_crisis,
+        suggested_coping_exercise=suggested_coping,
+        prompt_counsellor_booking=prompt_booking,
+        trigger_point3_sos=trigger_sos,
+        somatic_alert=somatic_note,
         checkin_id=None,
-        mode="simulated"
+        mode="real" if is_acute_crisis or is_panic else "simulated"
     )

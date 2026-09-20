@@ -13,6 +13,8 @@ from app.dashboard.routes import router as dashboard_router
 from app.audit.routes import router as audit_router
 from app.demo.routes import router as demo_router
 from app.integrations.nhaa import router as nhaa_router
+from app.counsellors.routes import router as counsellors_router
+from app.sos.routes import router as sos_router
 from app.schemas.schemas import EmergencyResponse, EmergencyContact
 
 # Initialize DB tables
@@ -81,6 +83,8 @@ app.include_router(dashboard_router)
 app.include_router(audit_router)
 app.include_router(demo_router)
 app.include_router(nhaa_router)
+app.include_router(counsellors_router)
+app.include_router(sos_router)
 
 @app.get("/health", tags=["System"])
 def health_check():

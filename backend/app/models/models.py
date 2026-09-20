@@ -190,7 +190,7 @@ class Alert(Base):
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     case_id = Column(String(50), ForeignKey("cases.id"), nullable=False, index=True)
-    risk_prediction_id = Column(String(36), ForeignKey("risk_predictions.id"), nullable=False, index=True)
+    risk_prediction_id = Column(String(36), ForeignKey("risk_predictions.id"), nullable=True, index=True)
     level = Column(String(30), nullable=False)  # LOW, MEDIUM, HIGH, CRITICAL, ABSTAIN
     contributing_factors = Column(JSON, default=list, nullable=False)
     protective_factors = Column(JSON, default=list, nullable=False)
