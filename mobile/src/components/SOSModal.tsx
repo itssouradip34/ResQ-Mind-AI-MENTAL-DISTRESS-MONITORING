@@ -20,9 +20,10 @@ import {
   X,
   Radio,
   Volume2,
-  VolumeX,
   MessageSquare,
   Send,
+  ExternalLink,
+  PhoneForwarded,
 } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { getCurrentLocation, UserLocation } from '../services/LocationService';
@@ -40,62 +41,62 @@ export const SOSModal: React.FC<SOSModalProps> = ({
   visible,
   onClose,
   triggerSource = 'manual_sos_button',
-  initialNotes = 'Emergency distress trigger initiated by victim in mobile application.',
 }) => {
   const { user, caseId, victimPseudoId, emergencyContacts } = useAuth();
   const [location, setLocation] = useState<UserLocation | null>(null);
   const [loading, setLoading] = useState(false);
   const [sosResult, setSosResult] = useState<SOSTriggerResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isSpeakingPreview, setIsSpeakingPreview] = useState(false);
+  const [dialerLaunched, setDialerLaunched] = useState(false);
 
   useEffect(() => {
     if (visible) {
       triggerPoint3EmergencyFlow();
     } else {
       Speech.stop();
-      setIsSpeaking(false);
+      setIsSpeakingPreview(false);
       setSosResult(null);
       setError(null);
+      setDialerLaunched(false);
     }
     return () => {
       Speech.stop();
     };
   }, [visible]);
 
-  const speakAiVoiceMessage = (textToSpeak: string) => {
-    try {
-      Speech.stop();
-      setIsSpeaking(true);
-      Speech.speak(textToSpeak, {
-        language: 'en-IN',
-        pitch: 1.0,
-        rate: 0.88,
-        onDone: () => setIsSpeaking(false),
-        onError: () => setIsSpeaking(false),
-      });
-    } catch (e) {
-      console.warn('Speech synthesis error:', e);
-      setIsSpeaking(false);
-    }
-  };
-
   const triggerPoint3EmergencyFlow = async () => {
     setLoading(true);
     setError(null);
+
+    const primaryContact = emergencyContacts[0] || {
+      name: 'Primary Support Contact',
+      phone: '9876543210',
+      relationship: 'Family',
+    };
+
+    // 1. Immediately launch native phone dialer to Contact 1
+    // This directly opens the cellular call on the user's phone without reciting anything out loud to the victim
+    const rawPhone = primaryContact.phone.trim();
+    if (rawPhone) {
+      try {
+        await Linking.openURL(`tel:${rawPhone}`);
+        setDialerLaunched(true);
+      } catch (dialErr) {
+        console.warn('Could not launch device phone dialer:', dialErr);
+      }
+    }
+
     try {
-      // 1. Fetch current GPS location
+      // 2. Fetch current GPS location for emergency broadcast
       const loc = await getCurrentLocation();
       setLocation(loc);
 
-      // 2. Synthesize & Speak AI Emergency Voice message immediately on phone speaker
-      const voiceScript = `Emergency Alert from RESQ-MIND: Please call back to ${user?.name || 'User'} immediately. They are in severe distress and need your urgent support.`;
-      speakAiVoiceMessage(voiceScript);
-
-      // 3. Retrieve saved Twilio credentials if configured by user
+      // 3. Retrieve saved Cloud Telephony credentials (Twilio / Fast2SMS)
       const twilioSid = await AsyncStorage.getItem('@resqmind_twilio_sid');
       const twilioToken = await AsyncStorage.getItem('@resqmind_twilio_token');
       const twilioPhone = await AsyncStorage.getItem('@resqmind_twilio_phone');
+      const fast2smsKey = await AsyncStorage.getItem('@resqmind_fast2sms_key');
 
       // 4. Dispatch backend Point 3 automated call & 3 SMS alerts
       const payload = {
@@ -110,6 +111,7 @@ export const SOSModal: React.FC<SOSModalProps> = ({
         twilio_account_sid: twilioSid || undefined,
         twilio_auth_token: twilioToken || undefined,
         twilio_phone_number: twilioPhone || undefined,
+        fast2sms_api_key: fast2smsKey || undefined,
       };
 
       const result: SOSTriggerResult = await apiRequest('/sos/trigger', {
@@ -119,7 +121,7 @@ export const SOSModal: React.FC<SOSModalProps> = ({
 
       setSosResult(result);
     } catch (err: any) {
-      console.error('Failed to trigger Point 3 SOS:', err);
+      console.error('Failed to trigger Point 3 SOS in backend:', err);
       setError(err.message || 'Failed to dispatch SOS alerts automatically.');
     } finally {
       setLoading(false);
@@ -127,14 +129,14 @@ export const SOSModal: React.FC<SOSModalProps> = ({
   };
 
   const dialNumber = (num: string) => {
-    Linking.openURL(`tel:${num}`);
+    Linking.openURL(`tel:${num.trim()}`);
   };
 
   const broadcastSmsToAll = () => {
     const phones = emergencyContacts.slice(0, 3).map((c) => c.phone.trim()).filter(Boolean);
     const locText = location
       ? `Lat ${location.latitude.toFixed(4)}, Lng ${location.longitude.toFixed(4)}`
-      : 'Registered Area';
+      : 'Registered Location';
     const msg = `URGENT [RESQ-MIND Alert]: ${user?.name || 'User'} has triggered an emergency distress alert. Please call or reach out to them immediately. Location: ${locText}.`;
 
     const recipientString = phones.join(Platform.OS === 'ios' ? '&' : ',');
@@ -147,7 +149,7 @@ export const SOSModal: React.FC<SOSModalProps> = ({
   const sendSmsToContact = (contactPhone: string) => {
     const locText = location
       ? `Lat ${location.latitude.toFixed(4)}, Lng ${location.longitude.toFixed(4)}`
-      : 'Registered Area';
+      : 'Registered Location';
     const msg = `URGENT [RESQ-MIND Alert]: ${user?.name || 'User'} has triggered an emergency distress alert. Please call or reach out immediately. Location: ${locText}.`;
     const url = `sms:${contactPhone.trim()}${Platform.OS === 'ios' ? '&' : '?'}body=${encodeURIComponent(msg)}`;
     Linking.openURL(url).catch((err) => {
@@ -155,11 +157,31 @@ export const SOSModal: React.FC<SOSModalProps> = ({
     });
   };
 
+  const playVoiceScriptPreview = (textToSpeak: string) => {
+    try {
+      Speech.stop();
+      setIsSpeakingPreview(true);
+      Speech.speak(textToSpeak, {
+        language: 'en-IN',
+        pitch: 1.0,
+        rate: 0.88,
+        onDone: () => setIsSpeakingPreview(false),
+        onError: () => setIsSpeakingPreview(false),
+      });
+    } catch (e) {
+      console.warn('Speech synthesis preview error:', e);
+      setIsSpeakingPreview(false);
+    }
+  };
+
   const primaryContact = emergencyContacts[0] || {
     name: 'Primary Support Contact',
     phone: '9876543210',
     relationship: 'Family',
   };
+
+  const hasTwilioCallDispatched = sosResult?.automated_call?.carrier_dispatched;
+  const hasCloudSmsDispatched = sosResult?.sms_dispatched?.some((s) => s.carrier_dispatched);
 
   return (
     <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
@@ -176,23 +198,29 @@ export const SOSModal: React.FC<SOSModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: 24 }}>
-            {/* Live Point 3 Status Banner */}
-            <View style={styles.bannerBox}>
-              <Text style={styles.bannerBadge}>AUTOMATED POINT 3 CALL & SMS PROTOCOL</Text>
-              <Text style={styles.bannerDesc}>
-                Point 3 requires an immediate automated phone call to your 1st selected contact 
-                with an AI synthesized voice message, and SMS alerts to all 3 of your trusted contacts.
-              </Text>
+          <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: 28 }}>
+            {/* Automatic Native Call Indicator */}
+            <View style={styles.activeCallBanner}>
+              <View style={styles.activeCallIconBox}>
+                <PhoneForwarded size={22} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.activeCallTitle}>
+                  {dialerLaunched ? 'DIALER OPENED TO CONTACT 1' : 'CONNECTING TO CONTACT 1'}
+                </Text>
+                <Text style={styles.activeCallDesc}>
+                  Calling {primaryContact.name} ({primaryContact.phone}) over your cellular phone network.
+                </Text>
+              </View>
             </View>
 
             {loading && (
               <View style={styles.loadingBox}>
-                <ActivityIndicator size="large" color="#DC2626" />
-                <Text style={styles.loadingText}>Dispatching automated AI Voice call & SMS broadcast...</Text>
+                <ActivityIndicator size="small" color="#DC2626" />
+                <Text style={styles.loadingText}>Connecting emergency services & dispatching alerts...</Text>
                 {location && (
                   <Text style={styles.locSub}>
-                    GPS Coordinates: {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+                    Live GPS: {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
                   </Text>
                 )}
               </View>
@@ -205,11 +233,11 @@ export const SOSModal: React.FC<SOSModalProps> = ({
               </View>
             )}
 
-            {/* Point 3 Automated Call Section */}
+            {/* Point 3: Contact 1 Automated Voice Call Card */}
             <View style={styles.card}>
               <View style={styles.cardHeader}>
                 <Radio size={18} color="#DC2626" />
-                <Text style={styles.cardTitle}>1. AUTOMATED AI VOICE CALL (CONTACT 1)</Text>
+                <Text style={styles.cardTitle}>1. AUTOMATED CALL TO CONTACT 1</Text>
               </View>
 
               <View style={styles.contactRow}>
@@ -217,49 +245,70 @@ export const SOSModal: React.FC<SOSModalProps> = ({
                   <Text style={styles.contactName}>{primaryContact.name} ({primaryContact.relationship})</Text>
                   <Text style={styles.contactPhone}>{primaryContact.phone}</Text>
                 </View>
-                <View style={styles.statusBadgeGreen}>
-                  <CheckCircle2 size={14} color="#059669" />
-                  <Text style={styles.statusTextGreen}>
-                    {sosResult?.automated_call?.carrier_dispatched ? 'CARRIER CALLED' : 'DISPATCH READY'}
+                <View style={hasTwilioCallDispatched ? styles.statusBadgeGreen : styles.statusBadgeBlue}>
+                  <CheckCircle2 size={13} color={hasTwilioCallDispatched ? '#059669' : '#2563EB'} />
+                  <Text style={hasTwilioCallDispatched ? styles.statusTextGreen : styles.statusTextBlue}>
+                    {hasTwilioCallDispatched ? 'TWILIO CARRIER CALLED' : 'NATIVE DIALED'}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.aiVoiceBox}>
-                <View style={styles.voiceHeaderRow}>
-                  <Text style={styles.aiVoiceLabel}>AI Synthesized Voice Alert (Spoken on Speaker):</Text>
-                  <TouchableOpacity
-                    style={styles.speakerBtn}
-                    onPress={() => speakAiVoiceMessage(
-                      sosResult?.automated_call?.ai_voice_message || 
-                      `Emergency Alert from RESQ-MIND: Please call back to ${user?.name || 'User'} immediately. They are in severe distress and need your urgent support.`
-                    )}
-                  >
-                    <Volume2 size={15} color="#DC2626" />
-                    <Text style={styles.speakerBtnText}>{isSpeaking ? 'Playing...' : 'Play Out Loud'}</Text>
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.aiVoiceScript}>
-                  "{sosResult?.automated_call?.ai_voice_message || 
-                    `Emergency Alert from RESQ-MIND: Please call back to ${user?.name || 'User'} immediately. They are in severe distress and need your urgent support.`}"
-                </Text>
-              </View>
-
+              {/* Redial Action Button */}
               <TouchableOpacity
                 style={styles.directCallBtn}
                 onPress={() => dialNumber(primaryContact.phone)}
                 activeOpacity={0.85}
               >
                 <PhoneCall size={18} color="#FFFFFF" />
-                <Text style={styles.directCallText}>📞 Call {primaryContact.name} Directly ({primaryContact.phone})</Text>
+                <Text style={styles.directCallText}>📞 Call {primaryContact.name} Now ({primaryContact.phone})</Text>
               </TouchableOpacity>
+
+              {/* Voice Script Detail (Spoken to Contact 1 over call, NOT to victim) */}
+              <View style={styles.aiVoiceBox}>
+                <View style={styles.voiceHeaderRow}>
+                  <Text style={styles.aiVoiceLabel}>
+                    Automated Voice Script (Spoken to {primaryContact.name} when call answers):
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.speakerBtn}
+                    onPress={() =>
+                      playVoiceScriptPreview(
+                        sosResult?.automated_call?.ai_voice_message ||
+                          `Emergency Alert from RESQ-MIND: Please call back to ${user?.name || 'User'} immediately. They are in severe distress and need your urgent support.`
+                      )
+                    }
+                  >
+                    <Volume2 size={14} color="#DC2626" />
+                    <Text style={styles.speakerBtnText}>
+                      {isSpeakingPreview ? 'Playing...' : 'Preview Audio'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.aiVoiceScript}>
+                  "{sosResult?.automated_call?.ai_voice_message ||
+                    `Emergency Alert from RESQ-MIND: Please call back to ${user?.name || 'User'} immediately. They are in severe distress and need your urgent support.`}"
+                </Text>
+                <Text style={styles.voiceNote}>
+                  * Note: In automated carrier mode, this audio message is played to your contact when they answer the call.
+                </Text>
+              </View>
             </View>
 
-            {/* Point 3 SMS Broadcast Section */}
+            {/* Point 3: Urgent SMS Broadcast Card */}
             <View style={styles.card}>
               <View style={styles.cardHeader}>
-                <CheckCircle2 size={18} color="#2563EB" />
+                <MessageSquare size={18} color="#2563EB" />
                 <Text style={styles.cardTitle}>2. URGENT SMS BROADCAST (3 CONTACTS)</Text>
+              </View>
+
+              <View style={styles.smsStatusRow}>
+                <Text style={styles.smsSubHeading}>3 Trusted Contacts Selected:</Text>
+                <View style={hasCloudSmsDispatched ? styles.statusBadgeGreen : styles.statusBadgeGray}>
+                  <CheckCircle2 size={13} color={hasCloudSmsDispatched ? '#059669' : '#4B5563'} />
+                  <Text style={hasCloudSmsDispatched ? styles.statusTextGreen : styles.statusTextGray}>
+                    {hasCloudSmsDispatched ? 'CLOUD SMS SENT' : 'READY TO SEND'}
+                  </Text>
+                </View>
               </View>
 
               {emergencyContacts.slice(0, 3).map((contact, idx) => (
@@ -281,19 +330,32 @@ export const SOSModal: React.FC<SOSModalProps> = ({
 
               <View style={styles.smsPreviewBox}>
                 <Text style={styles.smsPreviewText}>
-                  "URGENT [RESQ-MIND Alert]: {user?.name || 'User'} has triggered an emergency distress alert. 
+                  "URGENT [RESQ-MIND Alert]: {user?.name || 'User'} has triggered an emergency distress alert.
                   Please call or reach out to them immediately. Location: {location ? `Lat ${location.latitude.toFixed(3)}, Lng ${location.longitude.toFixed(3)}` : 'Registered District'}."
                 </Text>
               </View>
 
+              {/* 1-Tap Broadcast to all 3 contacts via native SMS */}
               <TouchableOpacity
                 style={styles.broadcastSmsBtn}
                 onPress={broadcastSmsToAll}
                 activeOpacity={0.85}
               >
                 <MessageSquare size={18} color="#FFFFFF" />
-                <Text style={styles.broadcastSmsBtnText}>💬 Send Urgent SMS to All 3 Contacts</Text>
+                <Text style={styles.broadcastSmsBtnText}>
+                  💬 Send Pre-Filled SMS to All 3 Contacts
+                </Text>
               </TouchableOpacity>
+            </View>
+
+            {/* Cloud Gateway Status Notice */}
+            <View style={styles.gatewayNoticeCard}>
+              <Text style={styles.gatewayNoticeTitle}>CLOUD TELEPHONY GATEWAY STATUS</Text>
+              <Text style={styles.gatewayNoticeDesc}>
+                {hasTwilioCallDispatched || hasCloudSmsDispatched
+                  ? '✓ Cloud carrier gateway is active. Outbound automated PSTN calling and SMS are live.'
+                  : 'ℹ️ Outbound cellular call dialed directly on this device. To enable server-side background automated calling (Twilio) or SMS (Fast2SMS), connect API keys in Settings.'}
+              </Text>
             </View>
 
             {/* Emergency Direct Hotlines */}
@@ -349,7 +411,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: '92%',
+    maxHeight: '94%',
   },
   header: {
     flexDirection: 'row',
@@ -376,36 +438,45 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   body: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingHorizontal: 18,
+    paddingTop: 14,
   },
-  bannerBox: {
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
+  activeCallBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#DC2626',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
   },
-  bannerBadge: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#B91C1C',
-    letterSpacing: 0.5,
-    marginBottom: 4,
+  activeCallIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  bannerDesc: {
-    fontSize: 12,
-    color: '#7F1D1D',
-    lineHeight: 16,
+  activeCallTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+  },
+  activeCallDesc: {
+    fontSize: 11.5,
+    color: '#FEE2E2',
+    marginTop: 2,
+    lineHeight: 15,
   },
   loadingBox: {
     alignItems: 'center',
-    paddingVertical: 16,
-    gap: 8,
+    paddingVertical: 10,
+    gap: 4,
   },
   loadingText: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#DC2626',
     fontWeight: '600',
   },
@@ -420,7 +491,7 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     gap: 8,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   errorText: {
     fontSize: 12,
@@ -452,26 +523,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 10,
+    padding: 12,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: '#E5E7EB',
+    marginBottom: 10,
   },
   contactName: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     color: '#111827',
   },
   contactPhone: {
     fontSize: 12,
-    color: '#4B5563',
+    color: '#6B7280',
     marginTop: 2,
   },
   statusBadgeGreen: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#D1FAE5',
+    backgroundColor: '#ECFDF5',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
@@ -480,75 +551,126 @@ const styles = StyleSheet.create({
   statusTextGreen: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#065F46',
+    color: '#059669',
   },
-  aiVoiceBox: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 10,
-  },
-  voiceHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  speakerBtn: {
+  statusBadgeBlue: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEE2E2',
+    backgroundColor: '#EFF6FF',
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 6,
     gap: 4,
   },
-  speakerBtnText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: '#DC2626',
+  statusTextBlue: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2563EB',
   },
-  aiVoiceLabel: {
-    fontSize: 10.5,
+  statusBadgeGray: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4,
+  },
+  statusTextGray: {
+    fontSize: 10,
     fontWeight: '700',
     color: '#4B5563',
-    marginBottom: 3,
-  },
-  aiVoiceScript: {
-    fontSize: 12,
-    color: '#1F2937',
-    fontStyle: 'italic',
-    lineHeight: 16,
   },
   directCallBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#DC2626',
-    paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 10,
+    paddingVertical: 12,
     gap: 8,
+    marginBottom: 10,
   },
   directCallText: {
     color: '#FFFFFF',
-    fontWeight: '700',
     fontSize: 13,
+    fontWeight: '800',
+  },
+  aiVoiceBox: {
+    backgroundColor: '#FFF1F2',
+    borderWidth: 1,
+    borderColor: '#FFE4E6',
+    borderRadius: 10,
+    padding: 10,
+  },
+  voiceHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  aiVoiceLabel: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#9F1239',
+    flex: 1,
+  },
+  speakerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+  },
+  speakerBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  aiVoiceScript: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    color: '#881337',
+    lineHeight: 15,
+  },
+  voiceNote: {
+    fontSize: 9.5,
+    color: '#9CA3AF',
+    marginTop: 5,
+  },
+  smsStatusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  smsSubHeading: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#374151',
   },
   smsContactRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    backgroundColor: '#FFFFFF',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 6,
   },
   smsContactInfo: {
     flex: 1,
   },
   smsContactIndex: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontWeight: '700',
-    color: '#111827',
+    color: '#1F2937',
   },
   smsContactPhone: {
     fontSize: 11,
@@ -558,71 +680,78 @@ const styles = StyleSheet.create({
   smsSingleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
     backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#BFDBFE',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    gap: 4,
   },
   smsSingleBtnText: {
     fontSize: 10.5,
     fontWeight: '700',
-    color: '#1D4ED8',
+    color: '#2563EB',
+  },
+  smsPreviewBox: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 8,
+    padding: 10,
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  smsPreviewText: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    color: '#1E40AF',
+    lineHeight: 15,
   },
   broadcastSmsBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#2563EB',
-    paddingVertical: 11,
-    borderRadius: 8,
-    marginTop: 10,
+    borderRadius: 10,
+    paddingVertical: 12,
     gap: 8,
   },
   broadcastSmsBtnText: {
     color: '#FFFFFF',
-    fontWeight: '700',
     fontSize: 13,
-  },
-  smsSentBadge: {
-    backgroundColor: '#DBEAFE',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  smsSentText: {
-    fontSize: 9.5,
     fontWeight: '800',
-    color: '#1D4ED8',
   },
-  smsPreviewBox: {
-    backgroundColor: '#FFFFFF',
-    padding: 8,
-    borderRadius: 6,
-    marginTop: 8,
+  gatewayNoticeCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E2E8F0',
+    padding: 12,
+    marginBottom: 14,
   },
-  smsPreviewText: {
+  gatewayNoticeTitle: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  gatewayNoticeDesc: {
     fontSize: 11,
-    color: '#4B5563',
-    fontStyle: 'italic',
+    color: '#64748B',
     lineHeight: 15,
   },
   hotlinesCard: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: '#F8FAFC',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: '#E2E8F0',
     padding: 14,
-    marginBottom: 8,
   },
   hotlinesTitle: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '800',
-    color: '#1E40AF',
+    color: '#475569',
     letterSpacing: 0.5,
     marginBottom: 10,
   },
@@ -635,39 +764,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 9,
+    paddingVertical: 10,
     borderRadius: 8,
     gap: 6,
   },
   teleManasBg: {
-    backgroundColor: '#059669',
+    backgroundColor: '#4F46E5',
   },
   policeBg: {
-    backgroundColor: '#DC2626',
+    backgroundColor: '#1E293B',
   },
   poaBg: {
-    backgroundColor: '#D97706',
+    backgroundColor: '#059669',
   },
   hotlineBtnText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
   footer: {
     paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
   },
   dismissBtn: {
     backgroundColor: '#F3F4F6',
-    paddingVertical: 12,
     borderRadius: 10,
+    paddingVertical: 12,
     alignItems: 'center',
   },
   dismissBtnText: {
     color: '#4B5563',
-    fontWeight: '700',
     fontSize: 13,
+    fontWeight: '700',
   },
 });

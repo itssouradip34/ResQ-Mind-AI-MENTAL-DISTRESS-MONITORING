@@ -40,6 +40,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onNavigateHome }
   const [twilioSid, setTwilioSid] = useState('');
   const [twilioToken, setTwilioToken] = useState('');
   const [twilioPhone, setTwilioPhone] = useState('');
+  const [fast2smsKey, setFast2smsKey] = useState('');
 
   // Editable contacts state
   const [contacts, setContacts] = useState<PersonalEmergencyContact[]>([]);
@@ -55,6 +56,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onNavigateHome }
       if (token) setTwilioToken(token);
       const phone = await AsyncStorage.getItem('@resqmind_twilio_phone');
       if (phone) setTwilioPhone(phone);
+      const f2s = await AsyncStorage.getItem('@resqmind_fast2sms_key');
+      if (f2s) setFast2smsKey(f2s);
     }
     loadConfig();
     setContacts(emergencyContacts);
@@ -90,10 +93,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onNavigateHome }
         await AsyncStorage.removeItem('@resqmind_twilio_phone');
       }
 
-      setSaveStatus('✓ Twilio Telephony credentials saved successfully!');
+      if (fast2smsKey.trim()) {
+        await AsyncStorage.setItem('@resqmind_fast2sms_key', fast2smsKey.trim());
+      } else {
+        await AsyncStorage.removeItem('@resqmind_fast2sms_key');
+      }
+
+      setSaveStatus('✓ Cloud Telephony & SMS credentials saved successfully!');
       setTimeout(() => setSaveStatus(null), 3000);
     } catch (e) {
-      Alert.alert('Error', 'Failed to save Twilio settings.');
+      Alert.alert('Error', 'Failed to save Cloud Telephony settings.');
     }
   };
 
@@ -224,9 +233,25 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onNavigateHome }
             />
           </View>
 
+          <View style={[styles.inputGroup, { marginTop: 6, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#E5E7EB' }]}>
+            <Text style={styles.label}>Fast2SMS API Key (Instant Free SMS in India)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Fast2SMS API authorization key"
+              placeholderTextColor="#9CA3AF"
+              value={fast2smsKey}
+              onChangeText={setFast2smsKey}
+              secureTextEntry={true}
+              autoCapitalize="none"
+            />
+            <Text style={styles.hintText}>
+              Optional: Fast2SMS provides 50 free SMS/day for Indian numbers. Sign up free at fast2sms.com.
+            </Text>
+          </View>
+
           <TouchableOpacity style={[styles.saveBtn, { backgroundColor: '#DC2626' }]} onPress={handleSaveTwilioConfig}>
             <Save size={14} color="#FFFFFF" />
-            <Text style={styles.saveBtnText}>Save Cloud Telephony Credentials</Text>
+            <Text style={styles.saveBtnText}>Save Cloud Telephony & SMS Credentials</Text>
           </TouchableOpacity>
         </View>
 
@@ -453,6 +478,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     gap: 6,
     marginTop: 6,
+  },
+  hintText: {
+    fontSize: 10.5,
+    color: '#6B7280',
+    marginTop: 4,
+    lineHeight: 14,
   },
   saveBtnText: {
     color: '#FFFFFF',

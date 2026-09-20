@@ -2,6 +2,10 @@ import os
 from pydantic_settings import BaseSettings
 from typing import Dict, Any
 
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_DEFAULT_DB_FILE = os.path.join(_BACKEND_DIR, "resq_mind.db").replace("\\", "/")
+_ENV_FILE = os.path.join(_BACKEND_DIR, ".env")
+
 class Settings(BaseSettings):
     PROJECT_NAME: str = "RESQ-MIND"
     PROJECT_DESCRIPTION: str = (
@@ -16,8 +20,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     
-    # SQLite default, PostgreSQL-portable
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./resq_mind.db")
+    # SQLite default anchored to backend dir, PostgreSQL-portable
+    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{_DEFAULT_DB_FILE}")
     
     # Field-level encryption key for IdentityStore PII
     FIELD_ENCRYPTION_KEY: str = os.getenv(
@@ -29,6 +33,9 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
     TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
     TWILIO_PHONE_NUMBER: str = os.getenv("TWILIO_PHONE_NUMBER", "")
+
+    # Fast2SMS Gateway (Alternative for Instant SMS in India)
+    FAST2SMS_API_KEY: str = os.getenv("FAST2SMS_API_KEY", "")
     
     # Privacy & Safety parameters
     K_ANONYMITY_FLOOR: int = 5
@@ -52,7 +59,7 @@ class Settings(BaseSettings):
     }
 
     class Config:
-        env_file = ".env"
+        env_file = _ENV_FILE
         extra = "allow"
 
 settings = Settings()

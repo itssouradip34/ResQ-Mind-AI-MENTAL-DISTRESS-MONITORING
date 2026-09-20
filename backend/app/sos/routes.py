@@ -189,7 +189,40 @@ def trigger_emergency_sos(
                 sms_record["error"] = str(ex)
 
         sms_dispatches.append(sms_record)
-        logger.info(f"Point 3: SMS sent to {formatted_phone}: '{sms_text}'")
+        logger.info(f"Point 3: SMS record prepared for {formatted_phone}")
+
+    # Fast2SMS Integration (Alternative for Instant SMS in India)
+    fast2sms_key = (payload.fast2sms_api_key or settings.FAST2SMS_API_KEY or "").strip()
+    if fast2sms_key and not any(s.get("carrier_dispatched") for s in sms_dispatches):
+        clean_phones = []
+        for c in contacts[:3]:
+            raw = re.sub(r"\D", "", c.get("phone", ""))[-10:]
+            if len(raw) == 10:
+                clean_phones.append(raw)
+        if clean_phones:
+            try:
+                import httpx
+                resp = httpx.post(
+                    "https://www.fast2sms.com/dev/bulkV2",
+                    headers={"authorization": fast2sms_key},
+                    data={
+                        "route": "q",
+                        "message": sms_text,
+                        "language": "english",
+                        "flash": 0,
+                        "numbers": ",".join(clean_phones)
+                    },
+                    timeout=8.0
+                )
+                if resp.status_code == 200:
+                    for rec in sms_dispatches:
+                        rec["status"] = "FAST2SMS_DISPATCHED"
+                        rec["carrier_dispatched"] = True
+                    logger.info(f"Fast2SMS batch dispatched successfully to {clean_phones}")
+                else:
+                    logger.warning(f"Fast2SMS failed with status {resp.status_code}: {resp.text}")
+            except Exception as fex:
+                logger.warning(f"Fast2SMS request failed: {fex}")
 
     # 4. Create high-priority Alert for assigned counsellor
     from app.models.models import RiskPrediction, DistressScore

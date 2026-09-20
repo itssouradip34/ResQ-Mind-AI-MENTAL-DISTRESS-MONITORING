@@ -380,6 +380,7 @@ class SOSTriggerRequest(BaseModel):
     twilio_account_sid: Optional[str] = None
     twilio_auth_token: Optional[str] = None
     twilio_phone_number: Optional[str] = None
+    fast2sms_api_key: Optional[str] = None
 
 class SOSTriggerResponse(BaseResponse):
     status: str
