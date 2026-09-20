@@ -67,10 +67,17 @@ def generate_risk_explanation(
     # 5. Case Event Component (Ev)
     ev_impact = component_breakdown.get("Ev")
     if ev_impact is not None and ev_impact > 0.3:
-        recent_names = [e.get("event_type", "").replace("_", " ") for e in recent_events[:2]]
-        ev_label = recent_names[0] if recent_names else "case milestone"
+        citation = None
+        for e in recent_events:
+            if isinstance(e, dict) and e.get("citation"):
+                citation = e["citation"]
+                break
+        if not citation and recent_events:
+            e0 = recent_events[0]
+            name = e0.get("event_type", "case milestone").replace("_", " ")
+            citation = f"Recent stressful case event: {name}"
         contributing_factors.append({
-            "text": f"Recent stressful case event: {ev_label}",
+            "text": citation or "Active stressful case milestone in window",
             "weight": round(min(0.95, ev_impact), 2)
         })
 

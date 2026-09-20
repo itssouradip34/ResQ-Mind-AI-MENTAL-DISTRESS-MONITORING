@@ -1,0 +1,78 @@
+{
+  "event_specs": {
+    "threat_report": {
+      "stress_weight_prior": 1.8,
+      "decay_days": 21,
+      "description": "Report of witness intimidation or direct threat to victim safety",
+      "vulnerability_tier": "critical"
+    },
+    "court_hearing": {
+      "stress_weight_prior": 1.2,
+      "decay_days": 14,
+      "description": "Scheduled trial hearing, cross-examination, or appearance",
+      "vulnerability_tier": "high"
+    },
+    "police_interaction": {
+      "stress_weight_prior": 0.9,
+      "decay_days": 10,
+      "description": "Station visit, statement recording under Sec 161 CrPC, or inquiry",
+      "vulnerability_tier": "medium"
+    },
+    "investigation_update": {
+      "stress_weight_prior": 0.8,
+      "decay_days": 14,
+      "description": "Chargesheet filing, scene inspection, or forensic status update",
+      "vulnerability_tier": "medium"
+    },
+    "compensation_update": {
+      "stress_weight_prior": 0.6,
+      "decay_days": 14,
+      "description": "Relief installment status under Rule 12(4) of SC/ST (PoA) Rules",
+      "vulnerability_tier": "medium"
+    },
+    "relocation": {
+      "stress_weight_prior": 1.1,
+      "decay_days": 30,
+      "description": "Emergency temporary shelter relocation or change of residence",
+      "vulnerability_tier": "high"
+    },
+    "complaint_registration": {
+      "stress_weight_prior": 0.7,
+      "decay_days": 14,
+      "description": "Initial FIR lodging under SC/ST (PoA) Act",
+      "vulnerability_tier": "medium"
+    },
+    "counselling_session": {
+      "stress_weight_prior": -0.5,
+      "decay_days": 14,
+      "description": "Trauma-informed psychosocial support session with counsellor",
+      "vulnerability_tier": "protective"
+    },
+    "rehabilitation": {
+      "stress_weight_prior": -0.6,
+      "decay_days": 30,
+      "description": "Livelihood support, vocational aid, or educational restoration",
+      "vulnerability_tier": "protective"
+    }
+  },
+  "interaction_rules": [
+    {
+      "event_a": "threat_report",
+      "event_b": "court_hearing",
+      "compounding_multiplier": 1.45,
+      "description": "Threat report preceding trial hearing severely elevates victim intimidation stress"
+    },
+    {
+      "event_a": "threat_report",
+      "event_b": "police_interaction",
+      "compounding_multiplier": 1.3,
+      "description": "Threat report with pending police inquiry requires immediate protection review"
+    },
+    {
+      "event_a": "court_hearing",
+      "event_b": "counselling_session",
+      "compounding_multiplier": 0.75,
+      "description": "Counselling immediately preceding/following court hearing buffers legal anxiety"
+    }
+  ]
+}

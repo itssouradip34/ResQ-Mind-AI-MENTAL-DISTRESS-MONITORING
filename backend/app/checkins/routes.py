@@ -136,16 +136,21 @@ def submit_checkin(payload: CheckInCreate, db: Session = Depends(get_db)):
         ))
         self_report_z = 0.0
 
-    # 8. Look up recent Case Event impact (Module 10 & 11)
-    two_weeks_ago = datetime.now(timezone.utc) - timedelta(days=14)
-    recent_events = db.query(CaseEvent).filter(
-        CaseEvent.case_id == payload.case_id,
-        CaseEvent.date >= two_weeks_ago
+    # 8. Look up Case Events & compute time-decayed stress impact (Module 10 & 11)
+    from app.ai.case_events import compute_case_events_stress_impact
+    all_case_events = db.query(CaseEvent).filter(
+        CaseEvent.case_id == payload.case_id
     ).all()
-    event_impact = 0.0
-    if recent_events:
-        max_prior = max(e.stress_weight_prior for e in recent_events)
-        event_impact = round(min(1.5, max_prior * 0.7), 2)
+    event_decay_res = compute_case_events_stress_impact(all_case_events, datetime.now(timezone.utc))
+    event_impact_payload = {
+        "impact_z": event_decay_res["impact_z"],
+        "citation": event_decay_res["citation"]
+    } if event_decay_res["active_events_count"] > 0 else None
+
+    recent_events = [
+        {"event_type": e.event_type, "date": e.date}
+        for e in all_case_events
+    ]
 
     # 9. Compute DDI (Module 7)
     last_score = db.query(DistressScore).filter(
@@ -167,7 +172,7 @@ def submit_checkin(payload: CheckInCreate, db: Session = Depends(get_db)):
         voice_z=voice_z,
         self_report_z=self_report_z,
         engagement_z=engagement_z,
-        event_impact=event_impact if recent_events else None,
+        event_impact=event_impact_payload,
         prev_ddi_display=prev_disp,
         days_since_prev=days_diff,
         prev_velocity=prev_vel
@@ -202,7 +207,7 @@ def submit_checkin(payload: CheckInCreate, db: Session = Depends(get_db)):
         risk_state=ddi_result["risk_state"],
         component_breakdown=ddi_result["component_breakdown"],
         confidence=ddi_result["confidence"],
-        recent_events=[{"event_type": e.event_type} for e in recent_events],
+        recent_events=[{"event_type": e["event_type"], "citation": event_decay_res.get("citation")} for e in recent_events],
         distress_markers=text_res.get("distress_markers", [])
     )
 

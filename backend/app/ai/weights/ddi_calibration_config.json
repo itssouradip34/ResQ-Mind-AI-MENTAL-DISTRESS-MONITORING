@@ -1,0 +1,25 @@
+{
+  "base_weights": {
+    "T": 0.21,
+    "V": 0.2,
+    "S": 0.21,
+    "En": 0.19,
+    "Ev": 0.19
+  },
+  "ewma_alpha": 0.3,
+  "display_scale": {
+    "offset": 50.0,
+    "multiplier": 25.0,
+    "function": "tanh"
+  },
+  "abstain_rules": {
+    "min_components": 2,
+    "min_confidence": 0.5,
+    "variance_penalty_scale": 2.5
+  },
+  "velocity_thresholds": {
+    "rising_pts_per_week": 5.0,
+    "declining_pts_per_week": -5.0
+  },
+  "device": "cuda:0"
+}

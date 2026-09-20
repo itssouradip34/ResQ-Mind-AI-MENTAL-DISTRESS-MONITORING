@@ -27,13 +27,26 @@ export const CaseDetail: React.FC<Props> = ({ caseId, onBack, onOpenEmergency })
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
+  // New Event Presets matching PRD Module 10
+  const EVENT_PRESETS: Record<string, { prior: number; decay: number; label: string }> = {
+    threat_report: { prior: 1.8, decay: 21, label: "Threat / Witness Intimidation" },
+    court_hearing: { prior: 1.2, decay: 14, label: "Court Hearing" },
+    police_interaction: { prior: 0.9, decay: 10, label: "Police Interaction / Inquiry" },
+    investigation_update: { prior: 0.8, decay: 14, label: "Investigation Update / Chargesheet" },
+    compensation_update: { prior: 0.6, decay: 14, label: "Compensation / Relief Update" },
+    relocation: { prior: 1.1, decay: 30, label: "Emergency Relocation / Shelter" },
+    counselling_session: { prior: -0.5, decay: 14, label: "Psychosocial Counselling Session" },
+    rehabilitation: { prior: -0.6, decay: 30, label: "Vocational / Educational Rehabilitation" },
+  };
+
   // New Event Modal State
   const [showEventModal, setShowEventModal] = useState<boolean>(false);
   const [newEvent, setNewEvent] = useState({
     event_type: "court_hearing",
     date: new Date().toISOString().split('T')[0],
     notes: "",
-    stress_weight_prior: 1.5
+    stress_weight_prior: 1.2,
+    decay_days: 14
   });
 
   const loadAll = async () => {
@@ -104,7 +117,7 @@ export const CaseDetail: React.FC<Props> = ({ caseId, onBack, onOpenEmergency })
           date: new Date(newEvent.date).toISOString(),
           notes: newEvent.notes,
           stress_weight_prior: Number(newEvent.stress_weight_prior),
-          decay_days: 14
+          decay_days: Number(newEvent.decay_days)
         })
       });
       setShowEventModal(false);
@@ -494,23 +507,45 @@ export const CaseDetail: React.FC<Props> = ({ caseId, onBack, onOpenEmergency })
         </div>
 
         <div className="divide-y divide-slate-100">
-          {(trajectory?.events || []).map((e: any) => (
-            <div key={e.id} className="py-3 flex items-start space-x-3 text-xs">
-              <div className="w-2 h-2 rounded-full bg-slate-400 mt-1.5 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 uppercase">{e.event_type.replace(/_/g, ' ')}</span>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    {new Date(e.date).toLocaleDateString()}
-                  </span>
-                </div>
-                {e.notes && <p className="text-slate-600 mt-0.5">{e.notes}</p>}
-                <div className="text-[10px] text-slate-400 mt-1">
-                  Prior Stress Weight: {e.stress_weight_prior} | Decay: {e.decay_days} days
+          {(trajectory?.events || []).map((e: any) => {
+            const daysAgo = Math.max(0, Math.round((Date.now() - new Date(e.date).getTime()) / 86400000));
+            const decayTau = e.decay_days || 14;
+            const isActive = daysAgo <= decayTau * 1.5;
+            return (
+              <div key={e.id} className="py-3 flex items-start space-x-3 text-xs">
+                <div className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${
+                  e.event_type === 'threat_report'
+                    ? 'bg-rose-500 ring-4 ring-rose-100'
+                    : isActive
+                    ? 'bg-amber-500'
+                    : 'bg-slate-300'
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-900 uppercase tracking-tight">{e.event_type.replace(/_/g, ' ')}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                        isActive
+                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                          : 'bg-slate-100 text-slate-500 border border-slate-200'
+                      }`}>
+                        {isActive ? `Active (${daysAgo}d ago)` : `Decayed (${daysAgo}d ago)`}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {new Date(e.date).toLocaleDateString()}
+                    </span>
+                  </div>
+                  {e.notes && <p className="text-slate-600 mt-1 leading-relaxed">{e.notes}</p>}
+                  <div className="text-[10px] text-slate-400 mt-1 flex items-center space-x-3">
+                    <span>Stress Prior: <strong className="text-slate-700">{e.stress_weight_prior > 0 ? `+${e.stress_weight_prior}` : e.stress_weight_prior}</strong></span>
+                    <span>•</span>
+                    <span>Decay Half-Life: <strong className="text-slate-700">{decayTau}d</strong></span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -587,15 +622,26 @@ export const CaseDetail: React.FC<Props> = ({ caseId, onBack, onOpenEmergency })
                 <label className="block font-semibold text-slate-700 mb-1">Event Type</label>
                 <select
                   value={newEvent.event_type}
-                  onChange={(e) => setNewEvent({ ...newEvent, event_type: e.target.value })}
-                  className="w-full p-2.5 rounded-lg border border-slate-300"
+                  onChange={(e) => {
+                    const t = e.target.value;
+                    const preset = EVENT_PRESETS[t] || { prior: 1.0, decay: 14 };
+                    setNewEvent({
+                      ...newEvent,
+                      event_type: t,
+                      stress_weight_prior: preset.prior,
+                      decay_days: preset.decay
+                    });
+                  }}
+                  className="w-full p-2.5 rounded-lg border border-slate-300 text-xs font-semibold"
                 >
-                  <option value="court_hearing">Court Hearing</option>
-                  <option value="threat_report">Threat / Intimidation Report</option>
-                  <option value="police_interaction">Police Interaction</option>
-                  <option value="investigation_update">Investigation Update</option>
-                  <option value="compensation_update">Compensation / Relief Update</option>
-                  <option value="relocation">Relocation / Shelter</option>
+                  <option value="court_hearing">Court Trial Hearing (prior: 1.2, decay: 14d)</option>
+                  <option value="threat_report">Threat / Intimidation Report (prior: 1.8, decay: 21d)</option>
+                  <option value="police_interaction">Police Interaction / Inquiry (prior: 0.9, decay: 10d)</option>
+                  <option value="investigation_update">Investigation Update / Chargesheet (prior: 0.8, decay: 14d)</option>
+                  <option value="compensation_update">Compensation / Relief Update (prior: 0.6, decay: 14d)</option>
+                  <option value="relocation">Relocation / Shelter (prior: 1.1, decay: 30d)</option>
+                  <option value="counselling_session">Psychosocial Counselling (protective: -0.5, decay: 14d)</option>
+                  <option value="rehabilitation">Vocational Rehabilitation (protective: -0.6, decay: 30d)</option>
                 </select>
               </div>
 
@@ -620,17 +666,30 @@ export const CaseDetail: React.FC<Props> = ({ caseId, onBack, onOpenEmergency })
                 />
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Stress Weight Prior (0.5 to 3.0)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.5"
-                  max="3.0"
-                  value={newEvent.stress_weight_prior}
-                  onChange={(e) => setNewEvent({ ...newEvent, stress_weight_prior: Number(e.target.value) })}
-                  className="w-full p-2.5 rounded-lg border border-slate-300"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Stress Prior Weight</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="-1.5"
+                    max="3.0"
+                    value={newEvent.stress_weight_prior}
+                    onChange={(e) => setNewEvent({ ...newEvent, stress_weight_prior: Number(e.target.value) })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Decay Half-Life (Days)</label>
+                  <input
+                    type="number"
+                    min="3"
+                    max="60"
+                    value={newEvent.decay_days}
+                    onChange={(e) => setNewEvent({ ...newEvent, decay_days: Number(e.target.value) })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs font-mono"
+                  />
+                </div>
               </div>
 
               <div className="pt-3 flex justify-end space-x-2">

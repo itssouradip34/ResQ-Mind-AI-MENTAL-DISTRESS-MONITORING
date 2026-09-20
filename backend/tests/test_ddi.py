@@ -70,3 +70,20 @@ def test_ddi_rising_trend_and_velocity():
     assert res["velocity"] > 5.0
     assert res["trend"] == "rising"
     assert res["risk_state"] in ["HIGH", "CRITICAL"]
+
+def test_ddi_batch_tensor_computation():
+    """Verify vectorized batch DDI computation via PyTorch GPU/CPU."""
+    import numpy as np
+    from app.ai.ddi_engine import compute_ddi_batch_tensor
+    
+    comp_matrix = np.array([
+        [1.0, 0.8, 1.2, -0.4, 1.5],
+        [-0.5, -0.4, -0.6, 0.2, 0.0]
+    ], dtype=np.float32)
+    mask_matrix = np.ones_like(comp_matrix)
+    prev_vector = np.array([50.0, 45.0], dtype=np.float32)
+    
+    batch_res = compute_ddi_batch_tensor(comp_matrix, mask_matrix, prev_vector)
+    assert len(batch_res["ddi_display"]) == 2
+    assert batch_res["ddi_display"][0] > 60.0
+    assert "cuda" in batch_res["device"] or "cpu" in batch_res["device"]

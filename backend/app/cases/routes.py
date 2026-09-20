@@ -247,6 +247,20 @@ def get_case_trajectory(case_id: str, db: Session = Depends(get_db)):
         mode="real"
     )
 
+@router.get("/{case_id}/events", response_model=List[CaseEventOut])
+def get_case_events(
+    case_id: str,
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
+    """
+    Module 10: Retrieve case lifecycle event timeline.
+    """
+    events = db.query(CaseEvent).filter(
+        CaseEvent.case_id == case_id
+    ).order_by(CaseEvent.date.asc()).all()
+    return events
+
 @router.post("/{case_id}/events", response_model=CaseEventOut)
 def log_case_event(
     case_id: str,
@@ -257,6 +271,8 @@ def log_case_event(
     """
     Module 10: Case-Event Timeline logger.
     """
+    from app.ai.case_events import EVENT_SPECS
+
     actor_id = "OFFICER-1"
     if token:
         try:
@@ -265,13 +281,22 @@ def log_case_event(
         except Exception:
             pass
 
+    # Auto-fill default stress prior and decay days if using default 1.0/14
+    spec = EVENT_SPECS.get(payload.event_type, {})
+    stress_prior = payload.stress_weight_prior
+    decay_tau = payload.decay_days
+    if stress_prior == 1.0 and "stress_weight_prior" in spec:
+        stress_prior = spec["stress_weight_prior"]
+    if decay_tau == 14 and "decay_days" in spec:
+        decay_tau = spec["decay_days"]
+
     event = CaseEvent(
         case_id=case_id,
         event_type=payload.event_type,
         date=payload.date,
         notes=payload.notes,
-        stress_weight_prior=payload.stress_weight_prior,
-        decay_days=payload.decay_days,
+        stress_weight_prior=stress_prior,
+        decay_days=decay_tau,
         created_by=actor_id
     )
     db.add(event)
@@ -284,12 +309,54 @@ def log_case_event(
         entity_type="CaseEvent",
         entity_id=event.id,
         before_state=None,
-        after_state={"event_type": event.event_type, "date": event.date.isoformat()}
+        after_state={"event_type": event.event_type, "date": event.date.isoformat(), "prior": stress_prior}
     )
     db.add(audit)
     db.commit()
 
     return event
+
+@router.delete("/{case_id}/events/{event_id}")
+def delete_case_event(
+    case_id: str,
+    event_id: str,
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
+    """
+    Module 10: Remove / correct an erroneous case event with audit logging.
+    """
+    actor_id = "OFFICER-1"
+    if token:
+        try:
+            p = decode_token(token)
+            actor_id = p.get("sub", "OFFICER-1")
+        except Exception:
+            pass
+
+    event = db.query(CaseEvent).filter(
+        CaseEvent.id == event_id,
+        CaseEvent.case_id == case_id
+    ).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Case event not found")
+
+    before_state = {"event_type": event.event_type, "date": event.date.isoformat()}
+    db.delete(event)
+    db.commit()
+
+    audit = AuditLog(
+        actor_id=actor_id,
+        action="DELETE_CASE_EVENT",
+        entity_type="CaseEvent",
+        entity_id=event_id,
+        before_state=before_state,
+        after_state=None
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"message": "Event deleted successfully", "event_id": event_id}
 
 @router.get("/{case_id}/event-coupling", response_model=EventCouplingResponse)
 def get_event_coupling(
