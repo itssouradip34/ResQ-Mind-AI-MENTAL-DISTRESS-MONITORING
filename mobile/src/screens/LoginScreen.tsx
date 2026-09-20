@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
 } from 'react-native';
 import { Shield, Lock, Mail, ArrowRight, HeartPulse } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
@@ -155,6 +156,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
+    paddingTop: Platform.OS === 'android' ? Math.max(StatusBar.currentHeight || 0, 36) + 6 : 0,
   },
   scrollContent: {
     paddingHorizontal: 20,

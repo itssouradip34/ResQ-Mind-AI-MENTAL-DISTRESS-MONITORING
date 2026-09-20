@@ -1,15 +1,26 @@
+import re
 import uuid
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import decode_token, oauth2_scheme
 from app.models.models import Victim, Alert, AuditLog, Case
 from app.schemas.schemas import SOSTriggerRequest, SOSTriggerResponse
 
 logger = logging.getLogger(__name__)
+
+def format_e164(phone: str) -> str:
+    """Format local phone number into standard international E.164 format."""
+    cleaned = re.sub(r"[^\d+]", "", str(phone or "")).strip()
+    if cleaned.startswith("+"):
+        return cleaned
+    if len(cleaned) == 10:
+        return f"+91{cleaned}"
+    return f"+{cleaned}" if cleaned else "+919876543210"
 
 router = APIRouter(prefix="/sos", tags=["SOS Emergency Automated Calling & SMS"])
 
@@ -78,26 +89,71 @@ def trigger_emergency_sos(
         f"They are in severe distress and need your urgent support. "
         f"This is an automated safety alert broadcast."
     )
-    
+
+    # Initialize Twilio Telephony Client if credentials provided (via request or environment)
+    twilio_sid = (payload.twilio_account_sid or settings.TWILIO_ACCOUNT_SID or "").strip()
+    twilio_token = (payload.twilio_auth_token or settings.TWILIO_AUTH_TOKEN or "").strip()
+    twilio_from = (payload.twilio_phone_number or settings.TWILIO_PHONE_NUMBER or "").strip()
+    twilio_client = None
+    if twilio_sid and twilio_token and twilio_from:
+        try:
+            from twilio.rest import Client
+            twilio_client = Client(twilio_sid, twilio_token)
+            logger.info("Twilio Client successfully initialized for live PSTN call & SMS.")
+        except Exception as err:
+            logger.warning(f"Failed to initialize Twilio client: {err}")
+
+    # Contact 1 Call Dispatch
+    raw_primary_phone = primary_contact.get("phone", "9876543210")
+    target_primary_phone = format_e164(raw_primary_phone)
     call_dispatch = {
         "call_id": f"CALL-{uuid.uuid4().hex[:8].upper()}",
         "recipient_name": primary_contact.get("name", "Primary Contact"),
-        "contact_phone": primary_contact.get("phone", "9876543210"),
-        "recipient_phone": primary_contact.get("phone", "9876543210"),
+        "contact_phone": raw_primary_phone,
+        "recipient_phone": raw_primary_phone,
+        "e164_phone": target_primary_phone,
         "relationship": primary_contact.get("relationship", "Primary"),
         "ai_voice_message": ai_voice_message,
         "ai_voice_script": ai_voice_message,
         "status": "INITIATED",
-        "audio_stream_simulated": True,
+        "audio_stream_simulated": twilio_client is None,
+        "carrier_dispatched": False,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
-    logger.info(f"Point 3: Automated AI Voice Call dispatched to {primary_contact.get('phone')}: '{ai_voice_message}'")
+
+    # Execute Live Twilio Voice Call if configured
+    if twilio_client:
+        try:
+            twiml_content = (
+                f'<Response>'
+                f'<Say voice="Polly.Aditi" language="en-IN">{ai_voice_message}</Say>'
+                f'<Pause length="1"/>'
+                f'<Say voice="Polly.Aditi" language="en-IN">{ai_voice_message}</Say>'
+                f'</Response>'
+            )
+            call_res = twilio_client.calls.create(
+                twiml=twiml_content,
+                to=target_primary_phone,
+                from_=twilio_from
+            )
+            call_dispatch["status"] = "TWILIO_CALL_DISPATCHED"
+            call_dispatch["carrier_dispatched"] = True
+            call_dispatch["twilio_call_sid"] = call_res.sid
+            logger.info(f"Twilio Voice Call initiated successfully to {target_primary_phone}: SID {call_res.sid}")
+        except Exception as ex:
+            logger.warning(f"Twilio Voice Call failed: {ex}")
+            call_dispatch["status"] = "TWILIO_CALL_FAILED"
+            call_dispatch["error"] = str(ex)
+
+    logger.info(f"Point 3: Automated AI Voice Call dispatched to {target_primary_phone}: '{ai_voice_message}'")
 
     # 3. Dispatch urgent SMS messages to all 3 selected contacts
     location_str = f"Lat {payload.latitude:.4f}, Lng {payload.longitude:.4f}" if (payload.latitude and payload.longitude) else "Registered District"
     sms_dispatches = []
     
     for idx, c in enumerate(contacts[:3]):
+        raw_phone = c.get("phone", "")
+        formatted_phone = format_e164(raw_phone)
         sms_text = (
             f"URGENT [RESQ-MIND Alert]: {payload.user_name} has triggered an emergency distress alert. "
             f"Please call or reach out to them immediately at {payload.user_phone or 'their phone'}. "
@@ -107,13 +163,33 @@ def trigger_emergency_sos(
             "sms_id": f"SMS-{uuid.uuid4().hex[:8].upper()}",
             "recipient_index": idx + 1,
             "recipient_name": c.get("name", f"Contact {idx+1}"),
-            "recipient_phone": c.get("phone", "Unknown"),
+            "recipient_phone": raw_phone,
+            "e164_phone": formatted_phone,
             "message": sms_text,
             "status": "SMS_SENT",
+            "carrier_dispatched": False,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+
+        # Execute Live Twilio SMS if configured
+        if twilio_client:
+            try:
+                sms_res = twilio_client.messages.create(
+                    body=sms_text,
+                    to=formatted_phone,
+                    from_=twilio_from
+                )
+                sms_record["status"] = "TWILIO_SMS_DISPATCHED"
+                sms_record["carrier_dispatched"] = True
+                sms_record["twilio_sid"] = sms_res.sid
+                logger.info(f"Twilio SMS sent to {formatted_phone}: SID {sms_res.sid}")
+            except Exception as ex:
+                logger.warning(f"Twilio SMS failed to {formatted_phone}: {ex}")
+                sms_record["status"] = "TWILIO_SMS_FAILED"
+                sms_record["error"] = str(ex)
+
         sms_dispatches.append(sms_record)
-        logger.info(f"Point 3: SMS sent to {c.get('phone')}: '{sms_text}'")
+        logger.info(f"Point 3: SMS sent to {formatted_phone}: '{sms_text}'")
 
     # 4. Create high-priority Alert for assigned counsellor
     from app.models.models import RiskPrediction, DistressScore

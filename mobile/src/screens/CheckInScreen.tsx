@@ -8,13 +8,17 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
-import { Scale, CheckCircle2, Mic, Activity, ArrowRight, ShieldCheck, HeartPulse } from 'lucide-react-native';
+import { Scale, CheckCircle2, Mic, Activity, ArrowRight, ShieldCheck, HeartPulse, ArrowLeft } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { EmergencyNoticeBanner } from '../components/EmergencyNoticeBanner';
 import { apiRequest } from '../api/config';
 import { CheckInResult } from '../types';
 
-export const CheckInScreen: React.FC = () => {
+interface CheckInScreenProps {
+  onNavigateHome?: () => void;
+}
+
+export const CheckInScreen: React.FC<CheckInScreenProps> = ({ onNavigateHome }) => {
   const { caseId, victimPseudoId, biometrics, updateBiometrics } = useAuth();
   const [weight, setWeight] = useState(biometrics?.weight_kg ? String(biometrics.weight_kg) : '56');
   const [activityRating, setActivityRating] = useState(3);
@@ -69,6 +73,17 @@ export const CheckInScreen: React.FC = () => {
       <EmergencyNoticeBanner />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {onNavigateHome && (
+          <TouchableOpacity
+            style={styles.backHomeBtn}
+            onPress={onNavigateHome}
+            activeOpacity={0.7}
+          >
+            <ArrowLeft size={16} color="#4F46E5" />
+            <Text style={styles.backHomeBtnText}>← Back to Home Dashboard</Text>
+          </TouchableOpacity>
+        )}
+
         <View style={styles.header}>
           <Text style={styles.title}>Periodic Well-Being Check-In</Text>
           <Text style={styles.subtitle}>
@@ -234,6 +249,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     paddingBottom: 40,
+  },
+  backHomeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    gap: 6,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+  },
+  backHomeBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#4F46E5',
   },
   header: {
     marginBottom: 16,

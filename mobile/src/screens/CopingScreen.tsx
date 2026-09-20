@@ -6,12 +6,13 @@ import {
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
-import { Wind, Shield, Play, Pause, RotateCcw, CheckCircle, Calendar, Sparkles } from 'lucide-react-native';
+import { Wind, Shield, Play, Pause, RotateCcw, CheckCircle, Calendar, Sparkles, ArrowLeft } from 'lucide-react-native';
 import { EmergencyNoticeBanner } from '../components/EmergencyNoticeBanner';
 
 interface CopingScreenProps {
   onNavigateToCounsellors: () => void;
   onOpenSOS: () => void;
+  onNavigateHome?: () => void;
 }
 
 type BreathingPhase = 'Inhale' | 'Hold (Full)' | 'Exhale' | 'Hold (Empty)';
@@ -19,6 +20,7 @@ type BreathingPhase = 'Inhale' | 'Hold (Full)' | 'Exhale' | 'Hold (Empty)';
 export const CopingScreen: React.FC<CopingScreenProps> = ({
   onNavigateToCounsellors,
   onOpenSOS,
+  onNavigateHome,
 }) => {
   // Box Breathing state
   const [isActive, setIsActive] = useState(false);
@@ -88,6 +90,17 @@ export const CopingScreen: React.FC<CopingScreenProps> = ({
       <EmergencyNoticeBanner />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {onNavigateHome && (
+          <TouchableOpacity
+            style={styles.backHomeBtn}
+            onPress={onNavigateHome}
+            activeOpacity={0.7}
+          >
+            <ArrowLeft size={16} color="#4F46E5" />
+            <Text style={styles.backHomeBtnText}>← Back to Home Dashboard</Text>
+          </TouchableOpacity>
+        )}
+
         <View style={styles.header}>
           <Text style={styles.title}>Nervous System Coping Tools</Text>
           <Text style={styles.subtitle}>
@@ -215,6 +228,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     paddingBottom: 40,
+  },
+  backHomeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    gap: 6,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+  },
+  backHomeBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#4F46E5',
   },
   header: {
     marginBottom: 16,

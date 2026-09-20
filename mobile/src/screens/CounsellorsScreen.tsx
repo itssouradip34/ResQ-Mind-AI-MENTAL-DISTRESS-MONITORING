@@ -20,6 +20,7 @@ import {
   Navigation,
   Clock,
   X,
+  ArrowLeft,
 } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { EmergencyNoticeBanner } from '../components/EmergencyNoticeBanner';
@@ -27,7 +28,11 @@ import { getCurrentLocation, UserLocation } from '../services/LocationService';
 import { apiRequest } from '../api/config';
 import { NearbyCounsellor, Appointment } from '../types';
 
-export const CounsellorsScreen: React.FC = () => {
+interface CounsellorsScreenProps {
+  onNavigateHome?: () => void;
+}
+
+export const CounsellorsScreen: React.FC<CounsellorsScreenProps> = ({ onNavigateHome }) => {
   const { caseId } = useAuth();
   const [location, setLocation] = useState<UserLocation | null>(null);
   const [counsellors, setCounsellors] = useState<NearbyCounsellor[]>([]);
@@ -136,13 +141,24 @@ export const CounsellorsScreen: React.FC = () => {
       <EmergencyNoticeBanner />
 
       <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>GPS Counsellor Directory</Text>
-          <Text style={styles.subtitle}>
-            {location
-              ? `📍 Showing verified facilities near ${location.latitude.toFixed(3)}, ${location.longitude.toFixed(3)}`
-              : 'Detecting location...'}
-          </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+          {onNavigateHome && (
+            <TouchableOpacity
+              style={styles.backHomeBtn}
+              onPress={onNavigateHome}
+              activeOpacity={0.7}
+            >
+              <ArrowLeft size={18} color="#4F46E5" />
+            </TouchableOpacity>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>GPS Counsellor Directory</Text>
+            <Text style={styles.subtitle}>
+              {location
+                ? `📍 Verified facilities near ${location.latitude.toFixed(2)}, ${location.longitude.toFixed(2)}`
+                : 'Detecting location...'}
+            </Text>
+          </View>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={fetchNearbyDirectory}>
           <Text style={styles.refreshText}>Refresh GPS</Text>
@@ -244,6 +260,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
+  },
+  backHomeBtn: {
+    padding: 6,
+    marginRight: 10,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 8,
   },
   title: {
     fontSize: 18,

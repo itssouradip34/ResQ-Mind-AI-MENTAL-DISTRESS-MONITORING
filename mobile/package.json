@@ -6,6 +6,7 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.24",
     "expo-location": "~57.0.19",
+    "expo-speech": "~57.0.3",
     "expo-status-bar": "~57.0.1",
     "lucide-react-native": "^1.47.0",
     "react": "19.2.3",

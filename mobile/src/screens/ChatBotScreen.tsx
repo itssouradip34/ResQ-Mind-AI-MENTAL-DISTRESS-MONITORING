@@ -10,7 +10,7 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import { Send, Bot, User as UserIcon, ShieldAlert, Wind, Calendar, HeartPulse } from 'lucide-react-native';
+import { Send, Bot, User as UserIcon, ShieldAlert, Wind, Calendar, HeartPulse, ArrowLeft } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { EmergencyNoticeBanner } from '../components/EmergencyNoticeBanner';
 import { apiRequest } from '../api/config';
@@ -20,12 +20,14 @@ interface ChatBotScreenProps {
   onTriggerSOS: () => void;
   onNavigateToCoping: () => void;
   onNavigateToCounsellors: () => void;
+  onNavigateHome?: () => void;
 }
 
 export const ChatBotScreen: React.FC<ChatBotScreenProps> = ({
   onTriggerSOS,
   onNavigateToCoping,
   onNavigateToCounsellors,
+  onNavigateHome,
 }) => {
   const { user, caseId, victimPseudoId } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -180,6 +182,15 @@ export const ChatBotScreen: React.FC<ChatBotScreenProps> = ({
       {/* Chat header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
+          {onNavigateHome && (
+            <TouchableOpacity
+              style={{ marginRight: 10, padding: 4 }}
+              onPress={onNavigateHome}
+              activeOpacity={0.7}
+            >
+              <ArrowLeft size={20} color="#4F46E5" />
+            </TouchableOpacity>
+          )}
           <View style={styles.activeDot} />
           <View>
             <Text style={styles.headerTitle}>RESQ-MIND AI Companion</Text>

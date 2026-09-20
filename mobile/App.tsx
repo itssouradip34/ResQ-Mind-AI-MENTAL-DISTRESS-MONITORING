@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
+  StatusBar as RNStatusBar,
+  BackHandler,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import {
@@ -17,6 +19,7 @@ import {
   Wind,
   Settings as SettingsIcon,
   ShieldAlert,
+  ArrowLeft,
 } from 'lucide-react-native';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
@@ -31,6 +34,9 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 import { SOSModal } from './src/components/SOSModal';
 import { registerForPushNotificationsAsync } from './src/services/NotificationService';
 
+const ANDROID_STATUS_BAR_HEIGHT =
+  Platform.OS === 'android' ? Math.max(RNStatusBar.currentHeight || 0, 36) + 8 : 0;
+
 type ActiveTab = 'Home' | 'Chat' | 'CheckIn' | 'Counsellors' | 'Coping' | 'Settings';
 
 function MainApp() {
@@ -42,6 +48,19 @@ function MainApp() {
   useEffect(() => {
     registerForPushNotificationsAsync();
   }, []);
+
+  // Handle hardware Back button on Android (e.g. Back from Coping / Chat to Home)
+  useEffect(() => {
+    const handleHardwareBack = () => {
+      if (currentTab !== 'Home') {
+        setCurrentTab('Home');
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', handleHardwareBack);
+    return () => sub.remove();
+  }, [currentTab]);
 
   if (isLoading) {
     return (
@@ -66,9 +85,26 @@ function MainApp() {
 
       {/* Top Main Navigation Header */}
       <View style={styles.topBar}>
-        <View>
-          <Text style={styles.brandTitle}>RESQ-MIND</Text>
-          <Text style={styles.brandSubtitle}>Well-Being Intelligence</Text>
+        <View style={styles.topBarLeft}>
+          {currentTab !== 'Home' ? (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => setCurrentTab('Home')}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <ArrowLeft size={20} color="#4F46E5" />
+              <View>
+                <Text style={styles.backButtonText}>Back to Home</Text>
+                <Text style={styles.backButtonSub}>← Return</Text>
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <View>
+              <Text style={styles.brandTitle}>RESQ-MIND</Text>
+              <Text style={styles.brandSubtitle}>Well-Being Intelligence</Text>
+            </View>
+          )}
         </View>
 
         {/* Prominent Always-Available SOS Button */}
@@ -95,17 +131,25 @@ function MainApp() {
             onTriggerSOS={() => setSosModalVisible(true)}
             onNavigateToCoping={() => setCurrentTab('Coping')}
             onNavigateToCounsellors={() => setCurrentTab('Counsellors')}
+            onNavigateHome={() => setCurrentTab('Home')}
           />
         )}
-        {currentTab === 'CheckIn' && <CheckInScreen />}
-        {currentTab === 'Counsellors' && <CounsellorsScreen />}
+        {currentTab === 'CheckIn' && (
+          <CheckInScreen onNavigateHome={() => setCurrentTab('Home')} />
+        )}
+        {currentTab === 'Counsellors' && (
+          <CounsellorsScreen onNavigateHome={() => setCurrentTab('Home')} />
+        )}
         {currentTab === 'Coping' && (
           <CopingScreen
             onNavigateToCounsellors={() => setCurrentTab('Counsellors')}
             onOpenSOS={() => setSosModalVisible(true)}
+            onNavigateHome={() => setCurrentTab('Home')}
           />
         )}
-        {currentTab === 'Settings' && <SettingsScreen />}
+        {currentTab === 'Settings' && (
+          <SettingsScreen onNavigateHome={() => setCurrentTab('Home')} />
+        )}
       </View>
 
       {/* Bottom Tab Navigation Bar */}
@@ -240,7 +284,7 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    paddingTop: Platform.OS === 'android' ? 30 : 0,
+    paddingTop: ANDROID_STATUS_BAR_HEIGHT,
   },
   loadingScreen: {
     flex: 1,
@@ -263,6 +307,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
+  },
+  topBarLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+    paddingRight: 8,
+  },
+  backButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#4F46E5',
+  },
+  backButtonSub: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#6366F1',
   },
   brandTitle: {
     fontSize: 17,
@@ -304,7 +369,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
     paddingVertical: 8,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 8,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
   },
   tabItem: {
     flex: 1,

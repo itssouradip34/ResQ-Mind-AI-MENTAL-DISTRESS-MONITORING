@@ -377,6 +377,9 @@ class SOSTriggerRequest(BaseModel):
     longitude: Optional[float] = None
     trigger_source: str = "ai_chatbot_crisis"
     emergency_contacts: Optional[List[PersonalEmergencyContact]] = []
+    twilio_account_sid: Optional[str] = None
+    twilio_auth_token: Optional[str] = None
+    twilio_phone_number: Optional[str] = None
 
 class SOSTriggerResponse(BaseResponse):
     status: str

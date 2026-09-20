@@ -24,6 +24,11 @@ class Settings(BaseSettings):
         "FIELD_ENCRYPTION_KEY", 
         "gAAAAABmZ1Y2X9Q4tL7nP8vK1mR3sJ6uT0wY4cA8eD2fG5hI="
     )
+
+    # Cloud Telephony & SMS Gateway (Twilio API)
+    TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    TWILIO_PHONE_NUMBER: str = os.getenv("TWILIO_PHONE_NUMBER", "")
     
     # Privacy & Safety parameters
     K_ANONYMITY_FLOOR: int = 5

@@ -8,8 +8,22 @@ import {
   Linking,
   ActivityIndicator,
   ScrollView,
+  Platform,
 } from 'react-native';
-import { PhoneCall, ShieldAlert, CheckCircle2, AlertCircle, X, Radio } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Speech from 'expo-speech';
+import {
+  PhoneCall,
+  ShieldAlert,
+  CheckCircle2,
+  AlertCircle,
+  X,
+  Radio,
+  Volume2,
+  VolumeX,
+  MessageSquare,
+  Send,
+} from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { getCurrentLocation, UserLocation } from '../services/LocationService';
 import { apiRequest } from '../api/config';
@@ -33,15 +47,38 @@ export const SOSModal: React.FC<SOSModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [sosResult, setSosResult] = useState<SOSTriggerResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   useEffect(() => {
     if (visible) {
       triggerPoint3EmergencyFlow();
     } else {
+      Speech.stop();
+      setIsSpeaking(false);
       setSosResult(null);
       setError(null);
     }
+    return () => {
+      Speech.stop();
+    };
   }, [visible]);
+
+  const speakAiVoiceMessage = (textToSpeak: string) => {
+    try {
+      Speech.stop();
+      setIsSpeaking(true);
+      Speech.speak(textToSpeak, {
+        language: 'en-IN',
+        pitch: 1.0,
+        rate: 0.88,
+        onDone: () => setIsSpeaking(false),
+        onError: () => setIsSpeaking(false),
+      });
+    } catch (e) {
+      console.warn('Speech synthesis error:', e);
+      setIsSpeaking(false);
+    }
+  };
 
   const triggerPoint3EmergencyFlow = async () => {
     setLoading(true);
@@ -51,7 +88,16 @@ export const SOSModal: React.FC<SOSModalProps> = ({
       const loc = await getCurrentLocation();
       setLocation(loc);
 
-      // 2. Dispatch backend Point 3 automated call & 3 SMS alerts
+      // 2. Synthesize & Speak AI Emergency Voice message immediately on phone speaker
+      const voiceScript = `Emergency Alert from RESQ-MIND: Please call back to ${user?.name || 'User'} immediately. They are in severe distress and need your urgent support.`;
+      speakAiVoiceMessage(voiceScript);
+
+      // 3. Retrieve saved Twilio credentials if configured by user
+      const twilioSid = await AsyncStorage.getItem('@resqmind_twilio_sid');
+      const twilioToken = await AsyncStorage.getItem('@resqmind_twilio_token');
+      const twilioPhone = await AsyncStorage.getItem('@resqmind_twilio_phone');
+
+      // 4. Dispatch backend Point 3 automated call & 3 SMS alerts
       const payload = {
         victim_pseudo_id: victimPseudoId || 'VIC-PSEUDO-USER',
         case_id: caseId || 'CASE-MH-2026-001',
@@ -61,6 +107,9 @@ export const SOSModal: React.FC<SOSModalProps> = ({
         longitude: loc.longitude,
         trigger_source: triggerSource,
         emergency_contacts: emergencyContacts,
+        twilio_account_sid: twilioSid || undefined,
+        twilio_auth_token: twilioToken || undefined,
+        twilio_phone_number: twilioPhone || undefined,
       };
 
       const result: SOSTriggerResult = await apiRequest('/sos/trigger', {
@@ -79,6 +128,31 @@ export const SOSModal: React.FC<SOSModalProps> = ({
 
   const dialNumber = (num: string) => {
     Linking.openURL(`tel:${num}`);
+  };
+
+  const broadcastSmsToAll = () => {
+    const phones = emergencyContacts.slice(0, 3).map((c) => c.phone.trim()).filter(Boolean);
+    const locText = location
+      ? `Lat ${location.latitude.toFixed(4)}, Lng ${location.longitude.toFixed(4)}`
+      : 'Registered Area';
+    const msg = `URGENT [RESQ-MIND Alert]: ${user?.name || 'User'} has triggered an emergency distress alert. Please call or reach out to them immediately. Location: ${locText}.`;
+
+    const recipientString = phones.join(Platform.OS === 'ios' ? '&' : ',');
+    const url = `sms:${recipientString}${Platform.OS === 'ios' ? '&' : '?'}body=${encodeURIComponent(msg)}`;
+    Linking.openURL(url).catch((err) => {
+      console.warn('Failed to launch native SMS app:', err);
+    });
+  };
+
+  const sendSmsToContact = (contactPhone: string) => {
+    const locText = location
+      ? `Lat ${location.latitude.toFixed(4)}, Lng ${location.longitude.toFixed(4)}`
+      : 'Registered Area';
+    const msg = `URGENT [RESQ-MIND Alert]: ${user?.name || 'User'} has triggered an emergency distress alert. Please call or reach out immediately. Location: ${locText}.`;
+    const url = `sms:${contactPhone.trim()}${Platform.OS === 'ios' ? '&' : '?'}body=${encodeURIComponent(msg)}`;
+    Linking.openURL(url).catch((err) => {
+      console.warn('Failed to launch single SMS:', err);
+    });
   };
 
   const primaryContact = emergencyContacts[0] || {
@@ -139,18 +213,32 @@ export const SOSModal: React.FC<SOSModalProps> = ({
               </View>
 
               <View style={styles.contactRow}>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text style={styles.contactName}>{primaryContact.name} ({primaryContact.relationship})</Text>
                   <Text style={styles.contactPhone}>{primaryContact.phone}</Text>
                 </View>
                 <View style={styles.statusBadgeGreen}>
                   <CheckCircle2 size={14} color="#059669" />
-                  <Text style={styles.statusTextGreen}>CALL INITIATED</Text>
+                  <Text style={styles.statusTextGreen}>
+                    {sosResult?.automated_call?.carrier_dispatched ? 'CARRIER CALLED' : 'DISPATCH READY'}
+                  </Text>
                 </View>
               </View>
 
               <View style={styles.aiVoiceBox}>
-                <Text style={styles.aiVoiceLabel}>AI Synthesized Voice Message Dispatched:</Text>
+                <View style={styles.voiceHeaderRow}>
+                  <Text style={styles.aiVoiceLabel}>AI Synthesized Voice Alert (Spoken on Speaker):</Text>
+                  <TouchableOpacity
+                    style={styles.speakerBtn}
+                    onPress={() => speakAiVoiceMessage(
+                      sosResult?.automated_call?.ai_voice_message || 
+                      `Emergency Alert from RESQ-MIND: Please call back to ${user?.name || 'User'} immediately. They are in severe distress and need your urgent support.`
+                    )}
+                  >
+                    <Volume2 size={15} color="#DC2626" />
+                    <Text style={styles.speakerBtnText}>{isSpeaking ? 'Playing...' : 'Play Out Loud'}</Text>
+                  </TouchableOpacity>
+                </View>
                 <Text style={styles.aiVoiceScript}>
                   "{sosResult?.automated_call?.ai_voice_message || 
                     `Emergency Alert from RESQ-MIND: Please call back to ${user?.name || 'User'} immediately. They are in severe distress and need your urgent support.`}"
@@ -160,9 +248,10 @@ export const SOSModal: React.FC<SOSModalProps> = ({
               <TouchableOpacity
                 style={styles.directCallBtn}
                 onPress={() => dialNumber(primaryContact.phone)}
+                activeOpacity={0.85}
               >
-                <PhoneCall size={16} color="#FFFFFF" />
-                <Text style={styles.directCallText}>Dial Contact 1 Directly ({primaryContact.phone})</Text>
+                <PhoneCall size={18} color="#FFFFFF" />
+                <Text style={styles.directCallText}>📞 Call {primaryContact.name} Directly ({primaryContact.phone})</Text>
               </TouchableOpacity>
             </View>
 
@@ -179,9 +268,14 @@ export const SOSModal: React.FC<SOSModalProps> = ({
                     <Text style={styles.smsContactIndex}>#{idx + 1} {contact.name}</Text>
                     <Text style={styles.smsContactPhone}>{contact.phone} • {contact.relationship}</Text>
                   </View>
-                  <View style={styles.smsSentBadge}>
-                    <Text style={styles.smsSentText}>SMS SENT</Text>
-                  </View>
+                  <TouchableOpacity
+                    style={styles.smsSingleBtn}
+                    onPress={() => sendSmsToContact(contact.phone)}
+                    activeOpacity={0.7}
+                  >
+                    <Send size={12} color="#2563EB" />
+                    <Text style={styles.smsSingleBtnText}>Send SMS</Text>
+                  </TouchableOpacity>
                 </View>
               ))}
 
@@ -191,6 +285,15 @@ export const SOSModal: React.FC<SOSModalProps> = ({
                   Please call or reach out to them immediately. Location: {location ? `Lat ${location.latitude.toFixed(3)}, Lng ${location.longitude.toFixed(3)}` : 'Registered District'}."
                 </Text>
               </View>
+
+              <TouchableOpacity
+                style={styles.broadcastSmsBtn}
+                onPress={broadcastSmsToAll}
+                activeOpacity={0.85}
+              >
+                <MessageSquare size={18} color="#FFFFFF" />
+                <Text style={styles.broadcastSmsBtnText}>💬 Send Urgent SMS to All 3 Contacts</Text>
+              </TouchableOpacity>
             </View>
 
             {/* Emergency Direct Hotlines */}
@@ -385,6 +488,26 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 10,
   },
+  voiceHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  speakerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    gap: 4,
+  },
+  speakerBtnText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
   aiVoiceLabel: {
     fontSize: 10.5,
     fontWeight: '700',
@@ -431,6 +554,37 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#6B7280',
     marginTop: 1,
+  },
+  smsSingleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4,
+  },
+  smsSingleBtnText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
+  broadcastSmsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2563EB',
+    paddingVertical: 11,
+    borderRadius: 8,
+    marginTop: 10,
+    gap: 8,
+  },
+  broadcastSmsBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
   },
   smsSentBadge: {
     backgroundColor: '#DBEAFE',

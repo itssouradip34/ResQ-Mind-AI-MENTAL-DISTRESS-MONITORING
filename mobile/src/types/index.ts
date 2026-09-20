@@ -100,6 +100,8 @@ export interface SOSTriggerResult {
     ai_voice_message: string;
     ai_voice_script?: string;
     status: string;
+    carrier_dispatched?: boolean;
+    twilio_call_sid?: string;
     timestamp: string;
   };
   sms_dispatched: {
@@ -109,6 +111,8 @@ export interface SOSTriggerResult {
     recipient_phone: string;
     message: string;
     status: string;
+    carrier_dispatched?: boolean;
+    twilio_sid?: string;
     timestamp: string;
   }[];
   helplines: {

@@ -17,26 +17,46 @@ import {
   Save,
   CheckCircle2,
   Lock,
+  ArrowLeft,
+  Radio,
+  Phone,
 } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import { EmergencyNoticeBanner } from '../components/EmergencyNoticeBanner';
 import { getBaseApiUrl, setBaseApiUrl } from '../api/config';
 import { PersonalEmergencyContact } from '../types';
 
-export const SettingsScreen: React.FC = () => {
+interface SettingsScreenProps {
+  onNavigateHome?: () => void;
+}
+
+export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onNavigateHome }) => {
   const { user, caseId, emergencyContacts, updateEmergencyContacts, biometrics, logout } = useAuth();
   const [apiUrl, setApiUrl] = useState('');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+
+  // Twilio Telephony Credentials
+  const [twilioSid, setTwilioSid] = useState('');
+  const [twilioToken, setTwilioToken] = useState('');
+  const [twilioPhone, setTwilioPhone] = useState('');
 
   // Editable contacts state
   const [contacts, setContacts] = useState<PersonalEmergencyContact[]>([]);
 
   useEffect(() => {
-    async function loadUrl() {
+    async function loadConfig() {
       const url = await getBaseApiUrl();
       setApiUrl(url);
+
+      const sid = await AsyncStorage.getItem('@resqmind_twilio_sid');
+      if (sid) setTwilioSid(sid);
+      const token = await AsyncStorage.getItem('@resqmind_twilio_token');
+      if (token) setTwilioToken(token);
+      const phone = await AsyncStorage.getItem('@resqmind_twilio_phone');
+      if (phone) setTwilioPhone(phone);
     }
-    loadUrl();
+    loadConfig();
     setContacts(emergencyContacts);
   }, [emergencyContacts]);
 
@@ -47,6 +67,33 @@ export const SettingsScreen: React.FC = () => {
       setTimeout(() => setSaveStatus(null), 3000);
     } catch (e) {
       Alert.alert('Error', 'Failed to save API URL.');
+    }
+  };
+
+  const handleSaveTwilioConfig = async () => {
+    try {
+      if (twilioSid.trim()) {
+        await AsyncStorage.setItem('@resqmind_twilio_sid', twilioSid.trim());
+      } else {
+        await AsyncStorage.removeItem('@resqmind_twilio_sid');
+      }
+
+      if (twilioToken.trim()) {
+        await AsyncStorage.setItem('@resqmind_twilio_token', twilioToken.trim());
+      } else {
+        await AsyncStorage.removeItem('@resqmind_twilio_token');
+      }
+
+      if (twilioPhone.trim()) {
+        await AsyncStorage.setItem('@resqmind_twilio_phone', twilioPhone.trim());
+      } else {
+        await AsyncStorage.removeItem('@resqmind_twilio_phone');
+      }
+
+      setSaveStatus('✓ Twilio Telephony credentials saved successfully!');
+      setTimeout(() => setSaveStatus(null), 3000);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save Twilio settings.');
     }
   };
 
@@ -75,6 +122,17 @@ export const SettingsScreen: React.FC = () => {
       <EmergencyNoticeBanner />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {onNavigateHome && (
+          <TouchableOpacity
+            style={styles.backHomeBtn}
+            onPress={onNavigateHome}
+            activeOpacity={0.7}
+          >
+            <ArrowLeft size={16} color="#4F46E5" />
+            <Text style={styles.backHomeBtnText}>← Back to Home Dashboard</Text>
+          </TouchableOpacity>
+        )}
+
         <View style={styles.header}>
           <Text style={styles.title}>Settings & Safety Preferences</Text>
           <Text style={styles.subtitle}>
@@ -115,6 +173,60 @@ export const SettingsScreen: React.FC = () => {
           <TouchableOpacity style={styles.saveBtn} onPress={handleSaveApiUrl}>
             <Save size={14} color="#FFFFFF" />
             <Text style={styles.saveBtnText}>Save API Server URL</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Cloud Telephony Gateway (Twilio API) */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Radio size={18} color="#DC2626" />
+            <Text style={styles.cardTitle}>Cloud Telephony Gateway (Twilio API)</Text>
+          </View>
+          <Text style={styles.cardDesc}>
+            Configure Twilio to allow the cloud backend to automatically call Contact 1 with AI Voice and dispatch SMS over PSTN. 
+            If not configured, the app uses device-native cellular dialing, native SMS broadcast, and device speech synthesis.
+          </Text>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Twilio Account SID</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              placeholderTextColor="#9CA3AF"
+              value={twilioSid}
+              onChangeText={setTwilioSid}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Twilio Auth Token</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Your Twilio Auth Token"
+              placeholderTextColor="#9CA3AF"
+              value={twilioToken}
+              onChangeText={setTwilioToken}
+              secureTextEntry={true}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Twilio Phone Number (Caller ID)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="+1234567890"
+              placeholderTextColor="#9CA3AF"
+              value={twilioPhone}
+              onChangeText={setTwilioPhone}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <TouchableOpacity style={[styles.saveBtn, { backgroundColor: '#DC2626' }]} onPress={handleSaveTwilioConfig}>
+            <Save size={14} color="#FFFFFF" />
+            <Text style={styles.saveBtnText}>Save Cloud Telephony Credentials</Text>
           </TouchableOpacity>
         </View>
 
@@ -217,6 +329,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     paddingBottom: 40,
+  },
+  backHomeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    gap: 6,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+  },
+  backHomeBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#4F46E5',
   },
   header: {
     marginBottom: 16,
