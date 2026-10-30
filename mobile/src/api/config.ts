@@ -15,13 +15,13 @@ export function getAutoDetectedHost(): string {
   } catch (e) {
     // ignore
   }
-  return 'http://172.24.29.95:8000';
+  return 'http://172.24.31.24:8000';
 }
 
 export const DEFAULT_API_URL = Platform.select({
   android: getAutoDetectedHost(),
   ios: getAutoDetectedHost(),
-  default: 'http://172.24.29.95:8000',
+  default: 'http://172.24.31.24:8000',
 });
 
 const STORAGE_KEY_API_URL = '@resqmind_custom_api_url';
